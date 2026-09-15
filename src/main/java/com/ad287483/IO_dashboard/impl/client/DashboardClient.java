@@ -126,59 +126,78 @@ public class DashboardClient {
 	}
 
 	/**
-	 * ロボットの各状態（リモート中、再生中、ロボットモード、セーフティステータス、プログラム状態）を一括照会する。
+	 * ロボットの各状態のうち、必要な項目のみを問い合わせる軽量クエリ。
+	 * 未指定の項目は前回の状態 (prevStatus) を引き継ぐことで通信回数を最小化する。
 	 */
-	public synchronized RobotStatus queryRobotStatus() {
+	public synchronized RobotStatus queryRobotStatusOptimized(
+			boolean needRemote,
+			boolean needRunning,
+			boolean needMode,
+			boolean needSafety,
+			boolean needProgState,
+			RobotStatus prevStatus) {
+
+		if (!needRemote && !needRunning && !needMode && !needSafety && !needProgState) {
+			return prevStatus != null ? prevStatus : RobotStatus.disconnected();
+		}
+
 		if (!isConnected()) {
 			if (!connect()) {
 				return RobotStatus.disconnected();
 			}
 		}
 
+		boolean inRemote = prevStatus != null && prevStatus.isInRemoteControl();
+		boolean running = prevStatus != null && prevStatus.isProgramRunning();
+		String mode = prevStatus != null ? prevStatus.getRobotMode() : "UNKNOWN";
+		String safety = prevStatus != null ? prevStatus.getSafetyStatus() : "UNKNOWN";
+		String progState = prevStatus != null ? prevStatus.getProgramState() : "UNKNOWN";
+
 		try {
-			// 1. is in remote control
-			String remoteRes = sendCommand("is in remote control");
-			boolean inRemote = "true".equalsIgnoreCase(remoteRes);
+			if (needRemote) {
+				String remoteRes = sendCommand("is in remote control");
+				inRemote = "true".equalsIgnoreCase(remoteRes);
+			}
 
-			// 2. running
-			String runningRes = sendCommand("running");
-			boolean running = runningRes != null && runningRes.toLowerCase().contains("true");
+			if (needRunning) {
+				String runningRes = sendCommand("running");
+				running = runningRes != null && runningRes.toLowerCase().contains("true");
+			}
 
-			// 3. robotmode
-			String modeRes = sendCommand("robotmode");
-			String mode = "UNKNOWN";
-			if (modeRes != null) {
-				if (modeRes.startsWith("Robotmode: ")) {
-					mode = modeRes.substring("Robotmode: ".length()).trim();
-				} else {
-					mode = modeRes.trim();
+			if (needMode) {
+				String modeRes = sendCommand("robotmode");
+				if (modeRes != null) {
+					mode = modeRes.startsWith("Robotmode: ") ? modeRes.substring("Robotmode: ".length()).trim() : modeRes.trim();
 				}
 			}
 
-			// 4. safetystatus
-			String safetyRes = sendCommand("safetystatus");
-			String safety = "UNKNOWN";
-			if (safetyRes != null) {
-				if (safetyRes.startsWith("Safetystatus: ")) {
-					safety = safetyRes.substring("Safetystatus: ".length()).trim();
-				} else {
-					safety = safetyRes.trim();
+			if (needSafety) {
+				String safetyRes = sendCommand("safetystatus");
+				if (safetyRes != null) {
+					safety = safetyRes.startsWith("Safetystatus: ") ? safetyRes.substring("Safetystatus: ".length()).trim() : safetyRes.trim();
 				}
 			}
 
-			// 5. programState
-			String progStateRes = sendCommand("programState");
-			String progState = "UNKNOWN";
-			if (progStateRes != null) {
-				String[] parts = progStateRes.split(" ");
-				progState = parts[0].trim();
+			if (needProgState) {
+				String progStateRes = sendCommand("programState");
+				if (progStateRes != null) {
+					String[] parts = progStateRes.split(" ");
+					progState = parts[0].trim();
+				}
 			}
 
 			return new RobotStatus(inRemote, running, mode, safety, progState);
 		} catch (IOException e) {
 			LOGGER.log(Level.WARNING, "Error querying robot status: " + e.getMessage());
-			return RobotStatus.disconnected();
+			return prevStatus != null ? prevStatus : RobotStatus.disconnected();
 		}
+	}
+
+	/**
+	 * ロボットの各状態（リモート中、再生中、ロボットモード、セーフティステータス、プログラム状態）を一括照会する。
+	 */
+	public synchronized RobotStatus queryRobotStatus() {
+		return queryRobotStatusOptimized(true, true, true, true, true, null);
 	}
 
 	/**

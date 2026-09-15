@@ -19,7 +19,7 @@ import java.util.logging.Logger;
  */
 public class IoMonitorService {
 	private static final Logger LOGGER = Logger.getLogger(IoMonitorService.class.getName());
-	private static final int POLLING_INTERVAL_MS = 50;
+	private static final int POLLING_INTERVAL_MS = 100;
 	private static final int MAX_LOG_ENTRIES = 50;
 
 	private final DashboardClient dashboardClient;
@@ -29,6 +29,8 @@ public class IoMonitorService {
 
 	private ScheduledFuture<?> pollingTask;
 	private IOModel ioModel;
+	private final Map<String, DigitalIO> digitalInputCache = new ConcurrentHashMap<String, DigitalIO>();
+	private final Map<String, DigitalIO> digitalOutputCache = new ConcurrentHashMap<String, DigitalIO>();
 
 	private boolean enabled = true;
 	private final Map<CommandAction, IoCommandBinding> commandBindings = new ConcurrentHashMap<CommandAction, IoCommandBinding>();
@@ -50,6 +52,31 @@ public class IoMonitorService {
 
 	public void setIoModel(IOModel ioModel) {
 		this.ioModel = ioModel;
+		refreshIoCache();
+	}
+
+	public void refreshIoCache() {
+		digitalInputCache.clear();
+		digitalOutputCache.clear();
+		if (ioModel != null) {
+			for (DigitalIO dio : ioModel.getIOs(DigitalIO.class)) {
+				String name = dio.getName() != null ? dio.getName().toLowerCase() : null;
+				String defName = dio.getDefaultName() != null ? dio.getDefaultName().toLowerCase() : null;
+				if (dio.isInput()) {
+					if (name != null && !name.isEmpty()) digitalInputCache.put(name, dio);
+					if (defName != null && !defName.isEmpty()) digitalInputCache.put(defName, dio);
+				} else {
+					if (name != null && !name.isEmpty()) digitalOutputCache.put(name, dio);
+					if (defName != null && !defName.isEmpty()) digitalOutputCache.put(defName, dio);
+				}
+			}
+		}
+	}
+
+	public boolean getLastInputState(String ioName) {
+		if (ioName == null) return false;
+		Boolean state = previousIoStates.get(ioName);
+		return state != null && state.booleanValue();
 	}
 
 	public boolean isEnabled() {
@@ -184,20 +211,16 @@ public class IoMonitorService {
 
 	/**
 	 * 指定した名前のIOの現在ブール値を読み出す。
+	 * キャッシュから O(1) で即時取得し、高負荷な全件探索を排除。
 	 */
 	public boolean readIoValue(String ioName) {
-		if (ioModel == null || ioName == null || ioName.trim().isEmpty()) {
+		if (ioName == null || ioName.trim().isEmpty()) {
 			return false;
 		}
 
-		for (IO io : ioModel.getIOs()) {
-			if (ioName.equalsIgnoreCase(io.getName()) || ioName.equalsIgnoreCase(io.getDefaultName())) {
-				if (io instanceof DigitalIO) {
-					return ((DigitalIO) io).getValue();
-				}
-				String valStr = io.getValueStr();
-				return "true".equalsIgnoreCase(valStr) || "1".equals(valStr) || "high".equalsIgnoreCase(valStr);
-			}
+		DigitalIO dio = digitalInputCache.get(ioName.toLowerCase());
+		if (dio != null) {
+			return dio.getValue();
 		}
 		return false;
 	}
@@ -364,16 +387,10 @@ public class IoMonitorService {
 			return;
 		}
 
-		// デジタル出力
-		if (ioModel != null) {
-			for (IO io : ioModel.getIOs()) {
-				if (ioName.equalsIgnoreCase(io.getName()) || ioName.equalsIgnoreCase(io.getDefaultName())) {
-					if (io instanceof DigitalIO && !io.isInput()) {
-						((DigitalIO) io).setValue(value);
-						return;
-					}
-				}
-			}
+		// デジタル出力 (キャッシュから高速取得)
+		DigitalIO dio = digitalOutputCache.get(ioName.toLowerCase());
+		if (dio != null) {
+			dio.setValue(value);
 		}
 	}
 

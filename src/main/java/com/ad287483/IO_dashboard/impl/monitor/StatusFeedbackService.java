@@ -20,7 +20,7 @@ import java.util.logging.Logger;
  */
 public class StatusFeedbackService {
 	private static final Logger LOGGER = Logger.getLogger(StatusFeedbackService.class.getName());
-	private static final int FEEDBACK_INTERVAL_MS = 200;
+	private static final int FEEDBACK_INTERVAL_MS = 500;
 
 	private final DashboardClient dashboardClient;
 	private final PrimaryInterfaceClient primaryClient;
@@ -29,6 +29,7 @@ public class StatusFeedbackService {
 
 	private ScheduledFuture<?> feedbackTask;
 	private IOModel ioModel;
+	private final Map<String, DigitalIO> digitalIoCache = new ConcurrentHashMap<String, DigitalIO>();
 	private volatile boolean enabled = true;
 	private volatile RobotStatus currentStatus = RobotStatus.disconnected();
 
@@ -48,6 +49,23 @@ public class StatusFeedbackService {
 
 	public void setIoModel(IOModel ioModel) {
 		this.ioModel = ioModel;
+		refreshDigitalIoCache();
+	}
+
+	public void refreshDigitalIoCache() {
+		digitalIoCache.clear();
+		if (ioModel != null) {
+			for (DigitalIO dio : ioModel.getIOs(DigitalIO.class)) {
+				if (!dio.isInput()) {
+					if (dio.getName() != null && !dio.getName().isEmpty()) {
+						digitalIoCache.put(dio.getName().toLowerCase(), dio);
+					}
+					if (dio.getDefaultName() != null && !dio.getDefaultName().isEmpty()) {
+						digitalIoCache.put(dio.getDefaultName().toLowerCase(), dio);
+					}
+				}
+			}
+		}
 	}
 
 	public boolean isEnabled() {
@@ -180,8 +198,21 @@ public class StatusFeedbackService {
 			return;
 		}
 
-		// 1. Dashboard Server から最新のロボット状態を取得
-		RobotStatus status = dashboardClient.queryRobotStatus();
+		// 実際に割り当てられているステータス項目のみを判別
+		boolean needRemote = isStatusActionNeeded(StatusOutputAction.IS_IN_REMOTE_CONTROL);
+		boolean needRunning = isStatusActionNeeded(StatusOutputAction.IS_PROGRAM_RUNNING);
+		boolean needMode = isStatusActionNeeded(StatusOutputAction.IS_ROBOT_POWER_ON)
+				|| isStatusActionNeeded(StatusOutputAction.IS_ROBOT_READY)
+				|| isCodeActionNeeded(StatusCodeOutputAction.ROBOT_MODE_CODE);
+		boolean needSafety = isStatusActionNeeded(StatusOutputAction.IS_SAFETY_NORMAL)
+				|| isStatusActionNeeded(StatusOutputAction.IS_PROTECTIVE_STOPPED)
+				|| isStatusActionNeeded(StatusOutputAction.IS_EMERGENCY_STOPPED)
+				|| isCodeActionNeeded(StatusCodeOutputAction.SAFETY_STATUS_CODE);
+		boolean needProgState = isCodeActionNeeded(StatusCodeOutputAction.PROGRAM_STATE_CODE);
+
+		// 1. Dashboard Server から必要な項目のみを軽量取得 (未割り当ての項目は問い合わせを完全スキップ)
+		RobotStatus status = dashboardClient.queryRobotStatusOptimized(
+				needRemote, needRunning, needMode, needSafety, needProgState, currentStatus);
 		this.currentStatus = status;
 
 		// 2. ブール状態出力の更新 (常時追従)
@@ -219,6 +250,16 @@ public class StatusFeedbackService {
 		}
 	}
 
+	private boolean isStatusActionNeeded(StatusOutputAction action) {
+		IoStatusBinding b = statusBindings.get(action);
+		return b != null && b.isAssigned();
+	}
+
+	private boolean isCodeActionNeeded(StatusCodeOutputAction action) {
+		IoStatusCodeBinding b = codeBindings.get(action);
+		return b != null && b.isAssigned();
+	}
+
 	/**
 	 * ブール出力先（汎用ブール出力レジスタまたはデジタル出力）へ書き込む。
 	 */
@@ -236,15 +277,10 @@ public class StatusFeedbackService {
 			return false;
 		}
 
-		// デジタル出力 (DigitalIO)
-		if (ioModel != null) {
-			for (IO io : ioModel.getIOs()) {
-				if (ioName.equalsIgnoreCase(io.getName()) || ioName.equalsIgnoreCase(io.getDefaultName())) {
-					if (io instanceof DigitalIO && !io.isInput()) {
-						return ((DigitalIO) io).setValue(value);
-					}
-				}
-			}
+		// デジタル出力 (DigitalIO) - キャッシュからO(1)で即時取得
+		DigitalIO dio = digitalIoCache.get(ioName.toLowerCase());
+		if (dio != null) {
+			return dio.setValue(value);
 		}
 		return false;
 	}

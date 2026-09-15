@@ -42,6 +42,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	private JPanel panelOutputBool;
 	private JPanel panelOutputCode;
 	private JPanel panelLog;
+	private int activeTabIndex = 0;
 
 	// 入力制御マッピング用コンポーネント
 	private final Map<CommandAction, JComboBox> inputIoComboBoxes = new HashMap<CommandAction, JComboBox>();
@@ -66,6 +67,14 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	// ログ表示部
 	private JTextPane logTextPane;
 	private JButton clearLogButton;
+
+	// UI再描画抑制のための値キャッシュ (スライダーの引っかかり・イベント遅延を根絶)
+	private final Map<CommandAction, Boolean> lastInputStatusCache = new HashMap<CommandAction, Boolean>();
+	private final Map<StatusOutputAction, Boolean> lastOutputStatusCache = new HashMap<StatusOutputAction, Boolean>();
+	private final Map<StatusCodeOutputAction, Integer> lastCodeStatusCache = new HashMap<StatusCodeOutputAction, Integer>();
+	private Boolean lastDashboardConnected = null;
+	private Boolean lastPrimaryConnected = null;
+	private int lastPrimaryPort = -1;
 
 	public IoDashboardInstallationNodeView(Style style) {
 		this.style = style;
@@ -171,6 +180,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	}
 
 	private void switchTab(int index) {
+		this.activeTabIndex = index;
 		if (panelInput != null) panelInput.setVisible(index == 0);
 		if (panelOutputBool != null) panelOutputBool.setVisible(index == 1);
 		if (panelOutputCode != null) panelOutputCode.setVisible(index == 2);
@@ -184,6 +194,10 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 				buttons[i].setFont(new Font("SansSerif", i == index ? Font.BOLD : Font.PLAIN, 12));
 			}
 		}
+	}
+
+	public boolean isLogTabActive() {
+		return activeTabIndex == 3;
 	}
 
 	// ------------------ ① 入力制御タブ ------------------
@@ -209,8 +223,9 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 
 			final JComboBox combo = new JComboBox();
 			combo.setFont(new Font("SansSerif", Font.PLAIN, 11));
-			combo.setPreferredSize(new Dimension(190, 26));
-			combo.setMaximumSize(new Dimension(190, 26));
+			combo.setPreferredSize(new Dimension(175, 26));
+			combo.setMaximumSize(new Dimension(175, 26));
+			combo.setMaximumRowCount(14);
 			combo.addItemListener(new ItemListener() {
 				@Override
 				public void itemStateChanged(ItemEvent e) {
@@ -221,6 +236,19 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			});
 			inputIoComboBoxes.put(action, combo);
 			row.add(combo);
+			row.add(Box.createRigidArea(new Dimension(6, 0)));
+
+			JButton numBtn = new JButton("番号入力");
+			numBtn.setFont(new Font("SansSerif", Font.PLAIN, 11));
+			numBtn.setPreferredSize(new Dimension(75, 26));
+			numBtn.setFocusPainted(false);
+			numBtn.addActionListener(new ActionListener() {
+				@Override
+				public void actionPerformed(ActionEvent e) {
+					promptRegisterInput(combo, "input_bit_register_", 0, 127);
+				}
+			});
+			row.add(numBtn);
 			row.add(Box.createRigidArea(new Dimension(10, 0)));
 
 			JLabel statusLabel = new JLabel("0");
@@ -307,8 +335,9 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 
 			final JComboBox combo = new JComboBox();
 			combo.setFont(new Font("SansSerif", Font.PLAIN, 11));
-			combo.setPreferredSize(new Dimension(190, 26));
-			combo.setMaximumSize(new Dimension(190, 26));
+			combo.setPreferredSize(new Dimension(175, 26));
+			combo.setMaximumSize(new Dimension(175, 26));
+			combo.setMaximumRowCount(14);
 			combo.addItemListener(new ItemListener() {
 				@Override
 				public void itemStateChanged(ItemEvent e) {
@@ -319,7 +348,20 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			});
 			outputIoComboBoxes.put(action, combo);
 			row.add(combo);
-			row.add(Box.createRigidArea(new Dimension(12, 0)));
+			row.add(Box.createRigidArea(new Dimension(6, 0)));
+
+			JButton numBtn = new JButton("番号入力");
+			numBtn.setFont(new Font("SansSerif", Font.PLAIN, 11));
+			numBtn.setPreferredSize(new Dimension(75, 26));
+			numBtn.setFocusPainted(false);
+			numBtn.addActionListener(new ActionListener() {
+				@Override
+				public void actionPerformed(ActionEvent e) {
+					promptRegisterInput(combo, "output_bit_register_", 0, 127);
+				}
+			});
+			row.add(numBtn);
+			row.add(Box.createRigidArea(new Dimension(10, 0)));
 
 			JLabel statusLabel = new JLabel("0 (OFF)");
 			statusLabel.setFont(new Font("SansSerif", Font.BOLD, 12));
@@ -363,8 +405,9 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 
 			final JComboBox combo = new JComboBox();
 			combo.setFont(new Font("SansSerif", Font.PLAIN, 11));
-			combo.setPreferredSize(new Dimension(190, 26));
-			combo.setMaximumSize(new Dimension(190, 26));
+			combo.setPreferredSize(new Dimension(175, 26));
+			combo.setMaximumSize(new Dimension(175, 26));
+			combo.setMaximumRowCount(14);
 			combo.addItemListener(new ItemListener() {
 				@Override
 				public void itemStateChanged(ItemEvent e) {
@@ -375,7 +418,20 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			});
 			codeIoComboBoxes.put(action, combo);
 			row.add(combo);
-			row.add(Box.createRigidArea(new Dimension(12, 0)));
+			row.add(Box.createRigidArea(new Dimension(6, 0)));
+
+			JButton numBtn = new JButton("番号入力");
+			numBtn.setFont(new Font("SansSerif", Font.PLAIN, 11));
+			numBtn.setPreferredSize(new Dimension(75, 26));
+			numBtn.setFocusPainted(false);
+			numBtn.addActionListener(new ActionListener() {
+				@Override
+				public void actionPerformed(ActionEvent e) {
+					promptRegisterInput(combo, "output_int_register_", 0, 47);
+				}
+			});
+			row.add(numBtn);
+			row.add(Box.createRigidArea(new Dimension(10, 0)));
 
 			JLabel valLbl = new JLabel("0");
 			valLbl.setFont(new Font("SansSerif", Font.BOLD, 12));
@@ -401,18 +457,19 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		panel.add(Box.createRigidArea(new Dimension(0, 6)));
 
 		// Busy
-		busyIoComboBox = createHandshakeCombo(panel, "Command Busy (処理中):", contribution);
+		// Busy
+		busyIoComboBox = createHandshakeCombo(panel, "Command Busy (処理中):", false, contribution);
 		// Done
-		doneIoComboBox = createHandshakeCombo(panel, "Command Done (正常完了):", contribution);
+		doneIoComboBox = createHandshakeCombo(panel, "Command Done (正常完了):", false, contribution);
 		// Error
-		errorIoComboBox = createHandshakeCombo(panel, "Command Error (実行エラー):", contribution);
+		errorIoComboBox = createHandshakeCombo(panel, "Command Error (実行エラー):", false, contribution);
 		// ErrorCode
-		errorCodeIoComboBox = createHandshakeCombo(panel, "Last Error Code 出力先:", contribution);
+		errorCodeIoComboBox = createHandshakeCombo(panel, "Last Error Code 出力先:", true, contribution);
 
 		return panel;
 	}
 
-	private JComboBox createHandshakeCombo(JPanel parent, String title, final IoDashboardInstallationNodeContribution contribution) {
+	private JComboBox createHandshakeCombo(JPanel parent, String title, final boolean isInteger, final IoDashboardInstallationNodeContribution contribution) {
 		Box row = Box.createHorizontalBox();
 		row.setAlignmentX(Component.LEFT_ALIGNMENT);
 
@@ -423,8 +480,9 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 
 		final JComboBox combo = new JComboBox();
 		combo.setFont(new Font("SansSerif", Font.PLAIN, 11));
-		combo.setPreferredSize(new Dimension(190, 26));
-		combo.setMaximumSize(new Dimension(190, 26));
+		combo.setPreferredSize(new Dimension(175, 26));
+		combo.setMaximumSize(new Dimension(175, 26));
+		combo.setMaximumRowCount(14);
 		combo.addItemListener(new ItemListener() {
 			@Override
 			public void itemStateChanged(ItemEvent e) {
@@ -434,6 +492,21 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			}
 		});
 		row.add(combo);
+		row.add(Box.createRigidArea(new Dimension(6, 0)));
+
+		JButton numBtn = new JButton("番号入力");
+		numBtn.setFont(new Font("SansSerif", Font.PLAIN, 11));
+		numBtn.setPreferredSize(new Dimension(75, 26));
+		numBtn.setFocusPainted(false);
+		numBtn.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				String prefix = isInteger ? "output_int_register_" : "output_bit_register_";
+				int max = isInteger ? 47 : 127;
+				promptRegisterInput(combo, prefix, 0, max);
+			}
+		});
+		row.add(numBtn);
 		row.add(Box.createHorizontalGlue());
 
 		parent.add(row);
@@ -487,22 +560,29 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	}
 
 	public void setConnectionStatus(boolean dashboardConnected, boolean primaryConnected, int primaryPort) {
-		if (dashboardStatusLabel != null) {
-			if (dashboardConnected) {
-				dashboardStatusLabel.setText("Dashboard (29999): 接続中");
-				dashboardStatusLabel.setForeground(new Color(0, 150, 0));
-			} else {
-				dashboardStatusLabel.setText("Dashboard: 切断");
-				dashboardStatusLabel.setForeground(Color.RED);
+		if (lastDashboardConnected == null || lastDashboardConnected.booleanValue() != dashboardConnected) {
+			lastDashboardConnected = dashboardConnected;
+			if (dashboardStatusLabel != null) {
+				if (dashboardConnected) {
+					dashboardStatusLabel.setText("Dashboard (29999): 接続中");
+					dashboardStatusLabel.setForeground(new Color(0, 150, 0));
+				} else {
+					dashboardStatusLabel.setText("Dashboard: 切断");
+					dashboardStatusLabel.setForeground(Color.RED);
+				}
 			}
 		}
-		if (primaryStatusLabel != null) {
-			if (primaryConnected) {
-				primaryStatusLabel.setText("Primary (" + primaryPort + "): 接続中");
-				primaryStatusLabel.setForeground(new Color(0, 150, 0));
-			} else {
-				primaryStatusLabel.setText("Primary: 切断");
-				primaryStatusLabel.setForeground(Color.RED);
+		if (lastPrimaryConnected == null || lastPrimaryConnected.booleanValue() != primaryConnected || lastPrimaryPort != primaryPort) {
+			lastPrimaryConnected = primaryConnected;
+			lastPrimaryPort = primaryPort;
+			if (primaryStatusLabel != null) {
+				if (primaryConnected) {
+					primaryStatusLabel.setText("Primary (" + primaryPort + "): 接続中");
+					primaryStatusLabel.setForeground(new Color(0, 150, 0));
+				} else {
+					primaryStatusLabel.setText("Primary: 切断");
+					primaryStatusLabel.setForeground(Color.RED);
+				}
 			}
 		}
 	}
@@ -572,6 +652,39 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		return programPathField != null ? programPathField.getText() : "";
 	}
 
+	private void promptRegisterInput(JComboBox combo, String prefix, int min, int max) {
+		String input = JOptionPane.showInputDialog(
+				null,
+				"レジスタ番号を入力してください (" + min + " 〜 " + max + "):",
+				"レジスタ直接指定",
+				JOptionPane.QUESTION_MESSAGE
+		);
+		if (input != null && !input.trim().isEmpty()) {
+			try {
+				int num = Integer.parseInt(input.trim());
+				if (num >= min && num <= max) {
+					String targetName = prefix + num;
+					boolean found = false;
+					for (int i = 0; i < combo.getItemCount(); i++) {
+						if (targetName.equalsIgnoreCase(String.valueOf(combo.getItemAt(i)))) {
+							combo.setSelectedIndex(i);
+							found = true;
+							break;
+						}
+					}
+					if (!found) {
+						combo.addItem(targetName);
+						combo.setSelectedItem(targetName);
+					}
+				} else {
+					JOptionPane.showMessageDialog(null, "番号は " + min + " 〜 " + max + " の範囲で入力してください。", "範囲外エラー", JOptionPane.WARNING_MESSAGE);
+				}
+			} catch (NumberFormatException ex) {
+				JOptionPane.showMessageDialog(null, "半角数字を入力してください。", "入力エラー", JOptionPane.ERROR_MESSAGE);
+			}
+		}
+	}
+
 	public void selectHandshakeIos(String busy, String done, String error, String errCode) {
 		if (busyIoComboBox != null && busy != null) busyIoComboBox.setSelectedItem(busy);
 		if (doneIoComboBox != null && done != null) doneIoComboBox.setSelectedItem(done);
@@ -585,6 +698,11 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	public String getErrorCodeIo() { return errorCodeIoComboBox != null ? (String) errorCodeIoComboBox.getSelectedItem() : ""; }
 
 	public void updateInputStatus(CommandAction action, boolean val) {
+		Boolean prev = lastInputStatusCache.get(action);
+		if (prev != null && prev.booleanValue() == val) {
+			return;
+		}
+		lastInputStatusCache.put(action, val);
 		JLabel lbl = inputStatusLabels.get(action);
 		if (lbl != null) {
 			lbl.setText(val ? "1 (ON)" : "0 (OFF)");
@@ -593,6 +711,11 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	}
 
 	public void updateOutputStatus(StatusOutputAction action, boolean val) {
+		Boolean prev = lastOutputStatusCache.get(action);
+		if (prev != null && prev.booleanValue() == val) {
+			return;
+		}
+		lastOutputStatusCache.put(action, val);
 		JLabel lbl = outputStatusLabels.get(action);
 		if (lbl != null) {
 			lbl.setText(val ? "1 (ON)" : "0 (OFF)");
@@ -601,6 +724,11 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	}
 
 	public void updateCodeStatus(StatusCodeOutputAction action, int val) {
+		Integer prev = lastCodeStatusCache.get(action);
+		if (prev != null && prev.intValue() == val) {
+			return;
+		}
+		lastCodeStatusCache.put(action, val);
 		JLabel lbl = codeStatusLabels.get(action);
 		if (lbl != null) {
 			lbl.setText(String.valueOf(val));

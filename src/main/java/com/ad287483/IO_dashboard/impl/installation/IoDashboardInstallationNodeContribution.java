@@ -73,14 +73,22 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		this.monitorService.start();
 		this.feedbackService.start();
 
-		// UR起動時の自動接続 (Dashboard & Primary)
-		triggerAutoConnect();
+		// 有効時のみ自動接続
+		if (monitorService.isEnabled()) {
+			triggerAutoConnect();
+		}
 	}
 
 	private void triggerAutoConnect() {
+		if (!monitorService.isEnabled()) {
+			return;
+		}
 		new Thread(new Runnable() {
 			@Override
 			public void run() {
+				if (!monitorService.isEnabled()) {
+					return;
+				}
 				if (!dashboardClient.isConnected()) {
 					dashboardClient.connect();
 				}
@@ -163,7 +171,10 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 				model.get(KEY_HANDSHAKE_ERRCODE, "(使用しない)")
 		);
 
-		// 3. UI 定期更新タスクの開始 (500ms 周期)
+		// 3. UI 定期更新タスクの開始 (1000ms 周期で CPU 負荷を最小化)
+		monitorService.refreshIoCache();
+		feedbackService.refreshDigitalIoCache();
+
 		if (uiUpdateTask != null) {
 			uiUpdateTask.cancel(true);
 		}
@@ -177,7 +188,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 					}
 				});
 			}
-		}, 0, 500, TimeUnit.MILLISECONDS);
+		}, 0, 1000, TimeUnit.MILLISECONDS);
 
 		// 4. 未接続の場合は即時自動接続
 		triggerAutoConnect();
@@ -198,13 +209,17 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	}
 
 	private void updateUI() {
-		view.setConnectionStatus(dashboardClient.isConnected(), primaryClient.isConnected(), primaryClient.getActivePort());
+		if (!monitorService.isEnabled()) {
+			view.setConnectionStatus(false, false, 0);
+		} else {
+			view.setConnectionStatus(dashboardClient.isConnected(), primaryClient.isConnected(), primaryClient.getActivePort());
+		}
 
-		// 入力現在値の更新
+		// 入力現在値の更新 (UIスレッドでの高負荷な走査を排除し、監視スレッドの最新値を参照)
 		for (CommandAction action : CommandAction.values()) {
 			IoCommandBinding b = monitorService.getCommandBinding(action);
 			if (b != null && b.isAssigned()) {
-				boolean val = monitorService.readIoValue(b.getIoName());
+				boolean val = monitorService.getLastInputState(b.getIoName());
 				view.updateInputStatus(action, val);
 			} else {
 				view.updateInputStatus(action, false);
@@ -225,8 +240,10 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			view.updateCodeStatus(action, val);
 		}
 
-		// ログ更新
-		view.updateLogs(monitorService.getLogEntries());
+		// ログ更新 (ログタブ表示中のみ再描画を実行し、操作遅延を防止)
+		if (view.isLogTabActive()) {
+			view.updateLogs(monitorService.getLogEntries());
+		}
 	}
 
 	// ------------------ イベントハンドラ群 ------------------
@@ -235,6 +252,11 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		model.set(KEY_ENABLED, enabled);
 		monitorService.setEnabled(enabled);
 		feedbackService.setEnabled(enabled);
+
+		if (!enabled) {
+			// UI表示を直ちに「切断」に切り替え
+			view.setConnectionStatus(false, false, 0);
+		}
 
 		new Thread(new Runnable() {
 			@Override
@@ -246,6 +268,12 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 					dashboardClient.disconnect();
 					primaryClient.disconnect();
 					monitorService.addLog("監視サービスが無効化されました: 全出力を0クリアし通信を切断しました");
+					SwingUtilities.invokeLater(new Runnable() {
+						@Override
+						public void run() {
+							view.setConnectionStatus(false, false, 0);
+						}
+					});
 				} else {
 					// 有効化時: 再接続を開始
 					monitorService.addLog("監視サービスが有効化されました: 自動接続を開始します");
