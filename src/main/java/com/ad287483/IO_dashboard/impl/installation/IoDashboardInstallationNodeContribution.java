@@ -361,8 +361,8 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		List<String> list = new ArrayList<String>();
 		list.add("(未割り当て)");
 
-		// 汎用ブール入力レジスタ: bit 0 〜 127
-		for (int i = 0; i <= 127; i++) {
+		// 汎用ブール入力レジスタ: bit 0 〜 64
+		for (int i = 0; i <= 64; i++) {
 			list.add("input_bit_register_" + i);
 		}
 
@@ -382,8 +382,8 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		List<String> list = new ArrayList<String>();
 		list.add("(未割り当て)");
 
-		// 汎用ブール出力レジスタ: bit 0 〜 127
-		for (int i = 0; i <= 127; i++) {
+		// 汎用ブール出力レジスタ: bit 0 〜 64
+		for (int i = 0; i <= 64; i++) {
 			list.add("output_bit_register_" + i);
 		}
 
