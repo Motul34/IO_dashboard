@@ -24,6 +24,7 @@ public class PrimaryInterfaceClient {
 	private Socket socket;
 	private PrintWriter writer;
 	private long lastConnectAttemptTime = 0;
+	private Thread drainThread;
 
 	public PrimaryInterfaceClient() {
 		this(DEFAULT_HOST);
@@ -67,6 +68,7 @@ public class PrimaryInterfaceClient {
 				socket = s;
 				activePort = port;
 				LOGGER.info("Connected to Primary/Secondary Interface on " + host + ":" + port);
+				startDrainThread(s);
 				return true;
 			} catch (IOException ignored) {
 			}
@@ -77,6 +79,10 @@ public class PrimaryInterfaceClient {
 	}
 
 	public synchronized void disconnect() {
+		if (drainThread != null) {
+			drainThread.interrupt();
+			drainThread = null;
+		}
 		if (writer != null) {
 			try { writer.close(); } catch (Exception ignored) {}
 			writer = null;
@@ -85,6 +91,35 @@ public class PrimaryInterfaceClient {
 			try { socket.close(); } catch (Exception ignored) {}
 			socket = null;
 		}
+	}
+
+	/**
+	 * UR コントローラからブロードキャストされる状態パケットを
+	 * 空読みして破棄するバックグラウンドスレッドを開始する。
+	 * TCP 受信バッファの溢れ (ZeroWindow) を防止する。
+	 */
+	private void startDrainThread(final Socket s) {
+		if (drainThread != null) {
+			drainThread.interrupt();
+		}
+		drainThread = new Thread(new Runnable() {
+			@Override
+			public void run() {
+				byte[] buf = new byte[4096];
+				try {
+					java.io.InputStream in = s.getInputStream();
+					while (!Thread.currentThread().isInterrupted()) {
+						int read = in.read(buf);
+						if (read < 0) break;
+					}
+				} catch (IOException e) {
+					// ソケットクローズ時は正常終了
+				}
+			}
+		});
+		drainThread.setDaemon(true);
+		drainThread.setName("UR-PrimaryDrain");
+		drainThread.start();
 	}
 
 	public synchronized boolean isConnected() {
@@ -144,5 +179,31 @@ public class PrimaryInterfaceClient {
 				+ "  write_output_integer_register(" + address + ", " + value + ")\n"
 				+ "end\n";
 		return sendScript(script);
+	}
+
+	/**
+	 * 汎用ブール出力レジスタおよび整数出力レジスタを一括更新する。
+	 * 複数のレジスタ書き込みを 1 つの URScript セカンダリプログラムにまとめて送信し、通信負荷を最小化する。
+	 */
+	public synchronized boolean writeOutputRegistersBatch(java.util.Map<Integer, Boolean> boolWrites, java.util.Map<Integer, Integer> intWrites) {
+		if ((boolWrites == null || boolWrites.isEmpty()) && (intWrites == null || intWrites.isEmpty())) {
+			return true;
+		}
+		StringBuilder sb = new StringBuilder();
+		sb.append("sec writeRegsBatch():\n");
+		if (boolWrites != null) {
+			for (java.util.Map.Entry<Integer, Boolean> entry : boolWrites.entrySet()) {
+				sb.append("  write_output_boolean_register(").append(entry.getKey()).append(", ")
+				  .append(entry.getValue() ? "True" : "False").append(")\n");
+			}
+		}
+		if (intWrites != null) {
+			for (java.util.Map.Entry<Integer, Integer> entry : intWrites.entrySet()) {
+				sb.append("  write_output_integer_register(").append(entry.getKey()).append(", ")
+				  .append(entry.getValue()).append(")\n");
+			}
+		}
+		sb.append("end\n");
+		return sendScript(sb.toString());
 	}
 }

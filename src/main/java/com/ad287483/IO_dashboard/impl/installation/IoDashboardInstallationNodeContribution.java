@@ -43,6 +43,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	private final StatusFeedbackService feedbackService;
 
 	private final ScheduledExecutorService uiScheduler = Executors.newSingleThreadScheduledExecutor();
+	private final java.util.concurrent.ExecutorService asyncExecutor = Executors.newCachedThreadPool();
 	private ScheduledFuture<?> uiUpdateTask;
 
 	public IoDashboardInstallationNodeContribution(InstallationAPIProvider apiProvider,
@@ -83,7 +84,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		if (!monitorService.isEnabled()) {
 			return;
 		}
-		new Thread(new Runnable() {
+		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
 				if (!monitorService.isEnabled()) {
@@ -96,7 +97,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 					primaryClient.connect();
 				}
 			}
-		}).start();
+		});
 	}
 
 	private void restoreSettings() {
@@ -171,7 +172,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 				model.get(KEY_HANDSHAKE_ERRCODE, "(使用しない)")
 		);
 
-		// 3. UI 定期更新タスクの開始 (1000ms 周期で CPU 負荷を最小化)
+		// 3. UI 定期更新タスクの開始 (2000ms 周期で CPU 負荷を最小化)
 		monitorService.refreshIoCache();
 		feedbackService.refreshDigitalIoCache();
 
@@ -188,7 +189,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 					}
 				});
 			}
-		}, 0, 1000, TimeUnit.MILLISECONDS);
+		}, 0, 2000, TimeUnit.MILLISECONDS);
 
 		// 4. 未接続の場合は即時自動接続
 		triggerAutoConnect();
@@ -258,7 +259,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			view.setConnectionStatus(false, false, 0);
 		}
 
-		new Thread(new Runnable() {
+		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
 				if (!enabled) {
@@ -280,7 +281,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 					triggerAutoConnect();
 				}
 			}
-		}).start();
+		});
 	}
 
 	public void onCommandIoSelected(CommandAction action, String ioName) {
@@ -328,16 +329,16 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			b = new IoCommandBinding(action, "手動テスト", view.getProgramPath());
 		}
 		final IoCommandBinding toExec = b;
-		new Thread(new Runnable() {
+		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
 				monitorService.executeAction(toExec);
 			}
-		}).start();
+		});
 	}
 
 	public void testConnection() {
-		new Thread(new Runnable() {
+		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
 				monitorService.addLog("接続テスト開始...");
@@ -347,7 +348,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 				boolean pOk = primaryClient.connect();
 				monitorService.addLog("接続結果: Dashboard=" + (dOk ? "OK" : "NG") + ", Primary=" + (pOk ? "OK" : "NG"));
 			}
-		}).start();
+		});
 	}
 
 	public void clearLogs() {

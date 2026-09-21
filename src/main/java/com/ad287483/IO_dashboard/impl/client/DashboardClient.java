@@ -17,7 +17,7 @@ public class DashboardClient {
 	private static final String DEFAULT_HOST = "127.0.0.1";
 	private static final int DEFAULT_PORT = 29999;
 	private static final int CONNECT_TIMEOUT_MS = 2000;
-	private static final int READ_TIMEOUT_MS = 3000;
+	private static final int READ_TIMEOUT_MS = 1500;
 
 	private final String host;
 	private final int port;
@@ -181,8 +181,8 @@ public class DashboardClient {
 			if (needProgState) {
 				String progStateRes = sendCommand("programState");
 				if (progStateRes != null) {
-					String[] parts = progStateRes.split(" ");
-					progState = parts[0].trim();
+					int spaceIdx = progStateRes.indexOf(' ');
+					progState = (spaceIdx >= 0) ? progStateRes.substring(0, spaceIdx).trim() : progStateRes.trim();
 				}
 			}
 
@@ -202,14 +202,16 @@ public class DashboardClient {
 
 	/**
 	 * 一括起動シーケンス：power on 送信後、IDLEになるのを待機して brake release を送信する。
+	 * sendCommand() 自体が同期化されているため、本メソッドはロックを長時間保持しない。
 	 */
-	public synchronized String powerOnAndRelease() throws IOException, InterruptedException {
+	public String powerOnAndRelease() throws IOException, InterruptedException {
 		String res1 = sendCommand("power on");
 		if (res1.toLowerCase().contains("failed")) {
 			return res1;
 		}
 
 		// ロボットが IDLE になるまで待機 (最大15秒)
+		// sleep 中はロックを保持しないため、他スレッドからの状態クエリを妨げない
 		long startTime = System.currentTimeMillis();
 		boolean readyForBrake = false;
 		while (System.currentTimeMillis() - startTime < 15000) {

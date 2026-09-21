@@ -65,10 +65,15 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	private JComboBox errorCodeIoComboBox;
 
 	// ログ表示部
-	private JTextPane logTextPane;
+	private JTextArea logTextArea;
 	private JButton clearLogButton;
+	private int lastLogLineCount = 0;
 
 	// UI再描画抑制のための値キャッシュ (スライダーの引っかかり・イベント遅延を根絶)
+	private static final Color COLOR_CONNECTED = new Color(0, 150, 0);
+	private static final Color COLOR_DISCONNECTED = Color.RED;
+	private static final Color COLOR_ON = new Color(0, 150, 0);
+	private static final Color COLOR_OFF = Color.DARK_GRAY;
 	private final Map<CommandAction, Boolean> lastInputStatusCache = new HashMap<CommandAction, Boolean>();
 	private final Map<StatusOutputAction, Boolean> lastOutputStatusCache = new HashMap<StatusOutputAction, Boolean>();
 	private final Map<StatusCodeOutputAction, Integer> lastCodeStatusCache = new HashMap<StatusCodeOutputAction, Integer>();
@@ -126,11 +131,13 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		box.add(Box.createRigidArea(new Dimension(20, 0)));
 		dashboardStatusLabel = new JLabel("Dashboard (29999): 確認中");
 		dashboardStatusLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
+		dashboardStatusLabel.setPreferredSize(new Dimension(190, 20));
 		box.add(dashboardStatusLabel);
 
 		box.add(Box.createRigidArea(new Dimension(15, 0)));
 		primaryStatusLabel = new JLabel("Primary (30002): 確認中");
 		primaryStatusLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
+		primaryStatusLabel.setPreferredSize(new Dimension(180, 20));
 		box.add(primaryStatusLabel);
 
 		box.add(Box.createRigidArea(new Dimension(15, 0)));
@@ -485,13 +492,15 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		panel.add(top);
 		panel.add(Box.createRigidArea(new Dimension(0, 6)));
 
-		logTextPane = new JTextPane();
-		logTextPane.setEditable(false);
-		logTextPane.setFont(new Font("Monospaced", Font.PLAIN, 11));
-		logTextPane.setPreferredSize(new Dimension(650, 300));
-		logTextPane.setMaximumSize(new Dimension(750, 320));
-		logTextPane.setAlignmentX(Component.LEFT_ALIGNMENT);
-		panel.add(logTextPane);
+		logTextArea = new JTextArea();
+		logTextArea.setEditable(false);
+		logTextArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
+		logTextArea.setLineWrap(false);
+		JScrollPane logScroll = new JScrollPane(logTextArea);
+		logScroll.setPreferredSize(new Dimension(650, 300));
+		logScroll.setMaximumSize(new Dimension(750, 320));
+		logScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		panel.add(logScroll);
 
 		return panel;
 	}
@@ -510,10 +519,10 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			if (dashboardStatusLabel != null) {
 				if (dashboardConnected) {
 					dashboardStatusLabel.setText("Dashboard (29999): 接続中");
-					dashboardStatusLabel.setForeground(new Color(0, 150, 0));
+					dashboardStatusLabel.setForeground(COLOR_CONNECTED);
 				} else {
 					dashboardStatusLabel.setText("Dashboard: 切断");
-					dashboardStatusLabel.setForeground(Color.RED);
+					dashboardStatusLabel.setForeground(COLOR_DISCONNECTED);
 				}
 			}
 		}
@@ -523,10 +532,10 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			if (primaryStatusLabel != null) {
 				if (primaryConnected) {
 					primaryStatusLabel.setText("Primary (" + primaryPort + "): 接続中");
-					primaryStatusLabel.setForeground(new Color(0, 150, 0));
+					primaryStatusLabel.setForeground(COLOR_CONNECTED);
 				} else {
 					primaryStatusLabel.setText("Primary: 切断");
-					primaryStatusLabel.setForeground(Color.RED);
+					primaryStatusLabel.setForeground(COLOR_DISCONNECTED);
 				}
 			}
 		}
@@ -557,10 +566,8 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	private void updateComboItems(JComboBox combo, List<String> items) {
 		if (combo == null) return;
 		Object selected = combo.getSelectedItem();
-		combo.removeAllItems();
-		for (String item : items) {
-			combo.addItem(item);
-		}
+		// DefaultComboBoxModel による一括設定で Swing イベントを1回に集約
+		combo.setModel(new DefaultComboBoxModel(items.toArray(new String[0])));
 		if (selected != null && items.contains(selected)) {
 			combo.setSelectedItem(selected);
 		}
@@ -618,7 +625,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		JLabel lbl = inputStatusLabels.get(action);
 		if (lbl != null) {
 			lbl.setText(val ? "1 (ON)" : "0 (OFF)");
-			lbl.setForeground(val ? new Color(0, 150, 0) : Color.DARK_GRAY);
+			lbl.setForeground(val ? COLOR_ON : COLOR_OFF);
 		}
 	}
 
@@ -631,7 +638,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		JLabel lbl = outputStatusLabels.get(action);
 		if (lbl != null) {
 			lbl.setText(val ? "1 (ON)" : "0 (OFF)");
-			lbl.setForeground(val ? new Color(0, 150, 0) : Color.DARK_GRAY);
+			lbl.setForeground(val ? COLOR_ON : COLOR_OFF);
 		}
 	}
 
@@ -648,12 +655,26 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	}
 
 	public void updateLogs(List<String> logs) {
-		if (logTextPane == null) return;
-		StringBuilder sb = new StringBuilder();
-		for (String l : logs) {
-			sb.append(l).append("\n");
+		if (logTextArea == null) return;
+		int currentSize = logs.size();
+		if (currentSize == lastLogLineCount) {
+			return; // 変化なし: 再描画を完全スキップ
 		}
-		logTextPane.setText(sb.toString());
-		logTextPane.setCaretPosition(logTextPane.getDocument().getLength());
+		if (currentSize < lastLogLineCount) {
+			// ログがクリアされた場合: 全件再描画
+			logTextArea.setText("");
+			lastLogLineCount = 0;
+		}
+		// 差分行のみ追記
+		if (currentSize > lastLogLineCount) {
+			StringBuilder sb = new StringBuilder();
+			for (int i = lastLogLineCount; i < currentSize; i++) {
+				sb.append(logs.get(i)).append("\n");
+			}
+			logTextArea.append(sb.toString());
+			lastLogLineCount = currentSize;
+			// 末尾へスクロール
+			logTextArea.setCaretPosition(logTextArea.getDocument().getLength());
+		}
 	}
 }

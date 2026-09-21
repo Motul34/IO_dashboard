@@ -9,6 +9,7 @@ import com.ur.urcap.api.domain.io.IOModel;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.ArrayDeque;
 import java.util.concurrent.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -35,7 +36,8 @@ public class IoMonitorService {
 	private boolean enabled = true;
 	private final Map<CommandAction, IoCommandBinding> commandBindings = new ConcurrentHashMap<CommandAction, IoCommandBinding>();
 	private final Map<String, Boolean> previousIoStates = new ConcurrentHashMap<String, Boolean>();
-	private final List<String> logEntries = new CopyOnWriteArrayList<String>();
+	private final ArrayDeque<String> logRingBuffer = new ArrayDeque<String>();
+	private final SimpleDateFormat logDateFormat = new SimpleDateFormat("HH:mm:ss.SSS");
 
 	// コマンド実行ハンドシェイク用
 	private String busyIoName;
@@ -120,20 +122,26 @@ public class IoMonitorService {
 	}
 
 	public List<String> getLogEntries() {
-		return new ArrayList<String>(logEntries);
+		synchronized (logRingBuffer) {
+			return new ArrayList<String>(logRingBuffer);
+		}
 	}
 
 	public void clearLogs() {
-		logEntries.clear();
+		synchronized (logRingBuffer) {
+			logRingBuffer.clear();
+		}
 	}
 
 	public void addLog(String message) {
-		String timestamp = new SimpleDateFormat("HH:mm:ss.SSS").format(new Date());
+		String timestamp = logDateFormat.format(new Date());
 		String entry = "[" + timestamp + "] " + message;
 		LOGGER.info(entry);
-		logEntries.add(entry);
-		while (logEntries.size() > MAX_LOG_ENTRIES) {
-			logEntries.remove(0);
+		synchronized (logRingBuffer) {
+			logRingBuffer.addLast(entry);
+			while (logRingBuffer.size() > MAX_LOG_ENTRIES) {
+				logRingBuffer.removeFirst();
+			}
 		}
 	}
 
@@ -195,16 +203,16 @@ public class IoMonitorService {
 
 			// 初回検知時は現在値を保存するのみ
 			if (prevState == null) {
-				previousIoStates.put(ioName, currentState);
+				previousIoStates.put(ioName, currentState ? Boolean.TRUE : Boolean.FALSE);
 				continue;
 			}
 
 			// OFF -> ON の立ち上がりエッジ (Rising Edge) 検知
 			if (!prevState && currentState) {
-				previousIoStates.put(ioName, true);
+				previousIoStates.put(ioName, Boolean.TRUE);
 				triggerAction(binding);
 			} else {
-				previousIoStates.put(ioName, currentState);
+				previousIoStates.put(ioName, currentState ? Boolean.TRUE : Boolean.FALSE);
 			}
 		}
 	}
@@ -218,7 +226,10 @@ public class IoMonitorService {
 			return false;
 		}
 
-		DigitalIO dio = digitalInputCache.get(ioName.toLowerCase());
+		DigitalIO dio = digitalInputCache.get(ioName);
+		if (dio == null) {
+			dio = digitalInputCache.get(ioName.toLowerCase());
+		}
 		if (dio != null) {
 			return dio.getValue();
 		}

@@ -9,6 +9,14 @@ public class RobotStatus {
 	private final String robotMode;
 	private final String safetyStatus;
 	private final String programState;
+	private final boolean powerOn;
+	private final boolean ready;
+	private final boolean safetyNormal;
+	private final boolean protectiveStopped;
+	private final boolean emergencyStopped;
+	private final int robotModeCode;
+	private final int safetyStatusCode;
+	private final int programStateCode;
 
 	public RobotStatus(boolean inRemoteControl, boolean programRunning, String robotMode, String safetyStatus, String programState) {
 		this.inRemoteControl = inRemoteControl;
@@ -16,6 +24,62 @@ public class RobotStatus {
 		this.robotMode = robotMode != null ? robotMode.trim() : "UNKNOWN";
 		this.safetyStatus = safetyStatus != null ? safetyStatus.trim() : "UNKNOWN";
 		this.programState = programState != null ? programState.trim() : "UNKNOWN";
+
+		String m = this.robotMode.toUpperCase();
+		String s = this.safetyStatus.toUpperCase();
+		String p = this.programState.toUpperCase();
+
+		this.powerOn = "POWER_ON".equals(m) || "IDLE".equals(m) || "RUNNING".equals(m);
+		this.ready = "IDLE".equals(m) || "RUNNING".equals(m);
+		this.safetyNormal = "NORMAL".equals(s) || "REDUCED".equals(s);
+		this.protectiveStopped = s.contains("PROTECTIVE_STOP");
+		this.emergencyStopped = s.contains("EMERGENCY_STOP");
+
+		if (m.contains("DISCONNECTED") || m.contains("NO_CONTROLLER")) {
+			this.robotModeCode = 0;
+		} else if (m.contains("POWER_OFF")) {
+			this.robotModeCode = 1;
+		} else if (m.contains("BOOTING")) {
+			this.robotModeCode = 2;
+		} else if (m.contains("POWER_ON")) {
+			this.robotModeCode = 3;
+		} else if (m.contains("IDLE")) {
+			this.robotModeCode = 4;
+		} else if (m.contains("BACKDRIVE")) {
+			this.robotModeCode = 5;
+		} else if (m.contains("CONFIRM_SAFETY")) {
+			this.robotModeCode = 6;
+		} else if (m.contains("RUNNING")) {
+			this.robotModeCode = 7;
+		} else {
+			this.robotModeCode = -1;
+		}
+
+		if (s.contains("NORMAL")) {
+			this.safetyStatusCode = 1;
+		} else if (s.contains("REDUCED")) {
+			this.safetyStatusCode = 2;
+		} else if (s.contains("PROTECTIVE_STOP")) {
+			this.safetyStatusCode = 3;
+		} else if (s.contains("SAFEGUARD_STOP")) {
+			this.safetyStatusCode = 4;
+		} else if (s.contains("EMERGENCY_STOP")) {
+			this.safetyStatusCode = 5;
+		} else if (s.contains("VIOLATION") || s.contains("FAULT")) {
+			this.safetyStatusCode = 6;
+		} else {
+			this.safetyStatusCode = 0;
+		}
+
+		if (p.contains("STOPPED")) {
+			this.programStateCode = 1;
+		} else if (p.contains("PLAYING")) {
+			this.programStateCode = 2;
+		} else if (p.contains("PAUSED")) {
+			this.programStateCode = 3;
+		} else {
+			this.programStateCode = 0;
+		}
 	}
 
 	public static RobotStatus disconnected() {
@@ -46,78 +110,56 @@ public class RobotStatus {
 	 * ロボットアームの電源が入っているか (POWER_ON, IDLE, RUNNING 等)
 	 */
 	public boolean isPowerOn() {
-		return "POWER_ON".equalsIgnoreCase(robotMode)
-				|| "IDLE".equalsIgnoreCase(robotMode)
-				|| "RUNNING".equalsIgnoreCase(robotMode);
+		return powerOn;
 	}
 
 	/**
 	 * ロボットが待機完了・動作可能状態か (IDLE または RUNNING)
 	 */
 	public boolean isReady() {
-		return "IDLE".equalsIgnoreCase(robotMode) || "RUNNING".equalsIgnoreCase(robotMode);
+		return ready;
 	}
 
 	/**
 	 * セーフティが正常状態か (NORMAL または REDUCED)
 	 */
 	public boolean isSafetyNormal() {
-		return "NORMAL".equalsIgnoreCase(safetyStatus) || "REDUCED".equalsIgnoreCase(safetyStatus);
+		return safetyNormal;
 	}
 
 	/**
 	 * 保護停止が発生しているか (PROTECTIVE_STOP)
 	 */
 	public boolean isProtectiveStopped() {
-		return safetyStatus.toUpperCase().contains("PROTECTIVE_STOP");
+		return protectiveStopped;
 	}
 
 	/**
 	 * 非常停止が押下されているか (SYSTEM_EMERGENCY_STOP または ROBOT_EMERGENCY_STOP)
 	 */
 	public boolean isEmergencyStopped() {
-		return safetyStatus.toUpperCase().contains("EMERGENCY_STOP");
+		return emergencyStopped;
 	}
 
 	/**
 	 * RobotMode を整数コードに変換して返す。
 	 */
 	public int getRobotModeCode() {
-		String m = robotMode.toUpperCase();
-		if (m.contains("DISCONNECTED") || m.contains("NO_CONTROLLER")) return 0;
-		if (m.contains("POWER_OFF")) return 1;
-		if (m.contains("BOOTING")) return 2;
-		if (m.contains("POWER_ON")) return 3;
-		if (m.contains("IDLE")) return 4;
-		if (m.contains("BACKDRIVE")) return 5;
-		if (m.contains("CONFIRM_SAFETY")) return 6;
-		if (m.contains("RUNNING")) return 7;
-		return -1;
+		return robotModeCode;
 	}
 
 	/**
 	 * SafetyStatus を整数コードに変換して返す。
 	 */
 	public int getSafetyStatusCode() {
-		String s = safetyStatus.toUpperCase();
-		if (s.contains("NORMAL")) return 1;
-		if (s.contains("REDUCED")) return 2;
-		if (s.contains("PROTECTIVE_STOP")) return 3;
-		if (s.contains("SAFEGUARD_STOP")) return 4;
-		if (s.contains("EMERGENCY_STOP")) return 5;
-		if (s.contains("VIOLATION") || s.contains("FAULT")) return 6;
-		return 0;
+		return safetyStatusCode;
 	}
 
 	/**
 	 * ProgramState を整数コードに変換して返す。
 	 */
 	public int getProgramStateCode() {
-		String p = programState.toUpperCase();
-		if (p.contains("STOPPED")) return 1;
-		if (p.contains("PLAYING")) return 2;
-		if (p.contains("PAUSED")) return 3;
-		return 0;
+		return programStateCode;
 	}
 
 	@Override
