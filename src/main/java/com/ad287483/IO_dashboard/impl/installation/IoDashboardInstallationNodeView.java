@@ -9,6 +9,8 @@ import com.ur.urcap.api.contribution.installation.swing.SwingInstallationNodeVie
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -80,6 +82,17 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	private Boolean lastDashboardConnected = null;
 	private Boolean lastPrimaryConnected = null;
 	private int lastPrimaryPort = -1;
+
+	// プログラム起因のUI更新中にイベントリスナーが誤発火して保存データを破壊するのを防ぐガードフラグ
+	private boolean isUpdatingUI = false;
+
+	public boolean isUpdatingUI() {
+		return isUpdatingUI;
+	}
+
+	public void setUpdatingUI(boolean updatingUI) {
+		this.isUpdatingUI = updatingUI;
+	}
 
 	public IoDashboardInstallationNodeView(Style style) {
 		this.style = style;
@@ -232,10 +245,11 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			combo.setFont(new Font("SansSerif", Font.PLAIN, 11));
 			combo.setPreferredSize(new Dimension(190, 26));
 			combo.setMaximumSize(new Dimension(190, 26));
-			combo.setMaximumRowCount(14);
+			optimizeComboBoxScroll(combo);
 			combo.addItemListener(new ItemListener() {
 				@Override
 				public void itemStateChanged(ItemEvent e) {
+					if (isUpdatingUI) return;
 					if (e.getStateChange() == ItemEvent.SELECTED) {
 						contribution.onCommandIoSelected(action, (String) combo.getSelectedItem());
 					}
@@ -331,10 +345,11 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			combo.setFont(new Font("SansSerif", Font.PLAIN, 11));
 			combo.setPreferredSize(new Dimension(190, 26));
 			combo.setMaximumSize(new Dimension(190, 26));
-			combo.setMaximumRowCount(14);
+			optimizeComboBoxScroll(combo);
 			combo.addItemListener(new ItemListener() {
 				@Override
 				public void itemStateChanged(ItemEvent e) {
+					if (isUpdatingUI) return;
 					if (e.getStateChange() == ItemEvent.SELECTED) {
 						contribution.onStatusIoSelected(action, (String) combo.getSelectedItem());
 					}
@@ -388,10 +403,11 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			combo.setFont(new Font("SansSerif", Font.PLAIN, 11));
 			combo.setPreferredSize(new Dimension(190, 26));
 			combo.setMaximumSize(new Dimension(190, 26));
-			combo.setMaximumRowCount(14);
+			optimizeComboBoxScroll(combo);
 			combo.addItemListener(new ItemListener() {
 				@Override
 				public void itemStateChanged(ItemEvent e) {
+					if (isUpdatingUI) return;
 					if (e.getStateChange() == ItemEvent.SELECTED) {
 						contribution.onStatusCodeIoSelected(action, (String) combo.getSelectedItem());
 					}
@@ -449,10 +465,11 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		combo.setFont(new Font("SansSerif", Font.PLAIN, 11));
 		combo.setPreferredSize(new Dimension(190, 26));
 		combo.setMaximumSize(new Dimension(190, 26));
-		combo.setMaximumRowCount(14);
+		optimizeComboBoxScroll(combo);
 		combo.addItemListener(new ItemListener() {
 			@Override
 			public void itemStateChanged(ItemEvent e) {
+				if (isUpdatingUI) return;
 				if (e.getStateChange() == ItemEvent.SELECTED) {
 					contribution.onHandshakeChanged();
 				}
@@ -565,32 +582,56 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 
 	private void updateComboItems(JComboBox combo, List<String> items) {
 		if (combo == null) return;
-		Object selected = combo.getSelectedItem();
-		// DefaultComboBoxModel による一括設定で Swing イベントを1回に集約
-		combo.setModel(new DefaultComboBoxModel(items.toArray(new String[0])));
-		if (selected != null && items.contains(selected)) {
-			combo.setSelectedItem(selected);
+		boolean prev = isUpdatingUI;
+		isUpdatingUI = true;
+		try {
+			Object selected = combo.getSelectedItem();
+			// DefaultComboBoxModel による一括設定で Swing イベントを1回に集約
+			combo.setModel(new DefaultComboBoxModel(items.toArray(new String[0])));
+			if (selected != null && items.contains(selected)) {
+				combo.setSelectedItem(selected);
+			}
+		} finally {
+			isUpdatingUI = prev;
 		}
 	}
 
 	public void selectCommandIo(CommandAction action, String ioName) {
 		JComboBox combo = inputIoComboBoxes.get(action);
 		if (combo != null && ioName != null) {
-			combo.setSelectedItem(ioName);
+			boolean prev = isUpdatingUI;
+			isUpdatingUI = true;
+			try {
+				combo.setSelectedItem(ioName);
+			} finally {
+				isUpdatingUI = prev;
+			}
 		}
 	}
 
 	public void selectStatusIo(StatusOutputAction action, String ioName) {
 		JComboBox combo = outputIoComboBoxes.get(action);
 		if (combo != null && ioName != null) {
-			combo.setSelectedItem(ioName);
+			boolean prev = isUpdatingUI;
+			isUpdatingUI = true;
+			try {
+				combo.setSelectedItem(ioName);
+			} finally {
+				isUpdatingUI = prev;
+			}
 		}
 	}
 
 	public void selectStatusCodeIo(StatusCodeOutputAction action, String ioName) {
 		JComboBox combo = codeIoComboBoxes.get(action);
 		if (combo != null && ioName != null) {
-			combo.setSelectedItem(ioName);
+			boolean prev = isUpdatingUI;
+			isUpdatingUI = true;
+			try {
+				combo.setSelectedItem(ioName);
+			} finally {
+				isUpdatingUI = prev;
+			}
 		}
 	}
 
@@ -605,10 +646,16 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	}
 
 	public void selectHandshakeIos(String busy, String done, String error, String errCode) {
-		if (busyIoComboBox != null && busy != null) busyIoComboBox.setSelectedItem(busy);
-		if (doneIoComboBox != null && done != null) doneIoComboBox.setSelectedItem(done);
-		if (errorIoComboBox != null && error != null) errorIoComboBox.setSelectedItem(error);
-		if (errorCodeIoComboBox != null && errCode != null) errorCodeIoComboBox.setSelectedItem(errCode);
+		boolean prev = isUpdatingUI;
+		isUpdatingUI = true;
+		try {
+			if (busyIoComboBox != null && busy != null) busyIoComboBox.setSelectedItem(busy);
+			if (doneIoComboBox != null && done != null) doneIoComboBox.setSelectedItem(done);
+			if (errorIoComboBox != null && error != null) errorIoComboBox.setSelectedItem(error);
+			if (errorCodeIoComboBox != null && errCode != null) errorCodeIoComboBox.setSelectedItem(errCode);
+		} finally {
+			isUpdatingUI = prev;
+		}
 	}
 
 	public String getBusyIo() { return busyIoComboBox != null ? (String) busyIoComboBox.getSelectedItem() : ""; }
@@ -675,6 +722,54 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			lastLogLineCount = currentSize;
 			// 末尾へスクロール
 			logTextArea.setCaretPosition(logTextArea.getDocument().getLength());
+		}
+	}
+
+	/**
+	 * JComboBox のドロップダウンポップアップ内の JViewport に SIMPLE_SCROLL_MODE を適用する。
+	 * X11 ソフトウェアレンダリングにおける copyArea() に起因する文字崩れ・残像・とびとびを原理的に根絶する。
+	 */
+	private void optimizeComboBoxScroll(final JComboBox combo) {
+		combo.setMaximumRowCount(14);
+		combo.addPopupMenuListener(new PopupMenuListener() {
+			@Override
+			public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+				try {
+					Object ui = combo.getUI();
+					if (ui instanceof javax.swing.plaf.basic.BasicComboBoxUI) {
+						javax.accessibility.Accessible child = combo.getUI().getAccessibleChild(combo, 0);
+						if (child instanceof javax.swing.plaf.basic.BasicComboPopup) {
+							javax.swing.plaf.basic.BasicComboPopup popup = (javax.swing.plaf.basic.BasicComboPopup) child;
+							for (Component c : popup.getComponents()) {
+								if (c instanceof JScrollPane) {
+									((JScrollPane) c).getViewport().setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
+								}
+							}
+						}
+					}
+					javax.accessibility.AccessibleContext ac = combo.getAccessibleContext();
+					int count = ac.getAccessibleChildrenCount();
+					for (int i = 0; i < count; i++) {
+						javax.accessibility.Accessible child = ac.getAccessibleChild(i);
+						if (child instanceof JComponent) {
+							applySimpleScrollMode((JComponent) child);
+						}
+					}
+				} catch (Exception ignored) {}
+			}
+			@Override public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+			@Override public void popupMenuCanceled(PopupMenuEvent e) {}
+		});
+	}
+
+	private void applySimpleScrollMode(JComponent comp) {
+		if (comp instanceof JScrollPane) {
+			((JScrollPane) comp).getViewport().setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
+		}
+		for (Component c : comp.getComponents()) {
+			if (c instanceof JComponent) {
+				applySimpleScrollMode((JComponent) c);
+			}
 		}
 	}
 }

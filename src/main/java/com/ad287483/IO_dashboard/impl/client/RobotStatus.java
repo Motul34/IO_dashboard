@@ -29,9 +29,9 @@ public class RobotStatus {
 		String s = this.safetyStatus.toUpperCase();
 		String p = this.programState.toUpperCase();
 
-		this.powerOn = "POWER_ON".equals(m) || "IDLE".equals(m) || "RUNNING".equals(m);
-		this.ready = "IDLE".equals(m) || "RUNNING".equals(m);
-		this.safetyNormal = "NORMAL".equals(s) || "REDUCED".equals(s);
+		this.powerOn = m.contains("POWER_ON") || m.contains("IDLE") || m.contains("RUNNING");
+		this.ready = m.contains("IDLE") || m.contains("RUNNING");
+		this.safetyNormal = s.contains("NORMAL") || s.contains("REDUCED");
 		this.protectiveStopped = s.contains("PROTECTIVE_STOP");
 		this.emergencyStopped = s.contains("EMERGENCY_STOP");
 

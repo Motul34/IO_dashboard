@@ -39,8 +39,6 @@ public class StatusFeedbackService {
 
 	private final Map<StatusOutputAction, IoStatusBinding> statusBindings = new ConcurrentHashMap<StatusOutputAction, IoStatusBinding>();
 	private final Map<StatusCodeOutputAction, IoStatusCodeBinding> codeBindings = new ConcurrentHashMap<StatusCodeOutputAction, IoStatusCodeBinding>();
-	private final Map<StatusOutputAction, Integer> boolRegisterAddresses = new ConcurrentHashMap<StatusOutputAction, Integer>();
-	private final Map<StatusCodeOutputAction, Integer> intRegisterAddresses = new ConcurrentHashMap<StatusCodeOutputAction, Integer>();
 	private final Map<String, Boolean> lastWrittenBoolValues = new ConcurrentHashMap<String, Boolean>();
 	private final Map<String, Integer> lastWrittenIntValues = new ConcurrentHashMap<String, Integer>();
 
@@ -87,16 +85,14 @@ public class StatusFeedbackService {
 	}
 
 	public void setStatusBinding(StatusOutputAction action, String ioName) {
+		IoStatusBinding oldBinding = statusBindings.get(action);
+		if (oldBinding != null && oldBinding.isAssigned() && !oldBinding.getIoName().equals(ioName)) {
+			writeBooleanOutput(oldBinding.getIoName(), false);
+			lastWrittenBoolValues.remove(oldBinding.getIoName());
+		}
 		statusBindings.put(action, new IoStatusBinding(action, ioName));
-		if (ioName != null && ioName.startsWith("output_bit_register_")) {
-			try {
-				int addr = Integer.parseInt(ioName.substring("output_bit_register_".length()).trim());
-				boolRegisterAddresses.put(action, addr);
-			} catch (NumberFormatException e) {
-				boolRegisterAddresses.remove(action);
-			}
-		} else {
-			boolRegisterAddresses.remove(action);
+		if (ioName != null) {
+			lastWrittenBoolValues.remove(ioName);
 		}
 	}
 
@@ -105,16 +101,14 @@ public class StatusFeedbackService {
 	}
 
 	public void setCodeBinding(StatusCodeOutputAction action, String ioName) {
+		IoStatusCodeBinding oldBinding = codeBindings.get(action);
+		if (oldBinding != null && oldBinding.isAssigned() && !oldBinding.getIoName().equals(ioName)) {
+			writeIntegerOutput(oldBinding.getIoName(), 0);
+			lastWrittenIntValues.remove(oldBinding.getIoName());
+		}
 		codeBindings.put(action, new IoStatusCodeBinding(action, ioName));
-		if (ioName != null && ioName.startsWith("output_int_register_")) {
-			try {
-				int addr = Integer.parseInt(ioName.substring("output_int_register_".length()).trim());
-				intRegisterAddresses.put(action, addr);
-			} catch (NumberFormatException e) {
-				intRegisterAddresses.remove(action);
-			}
-		} else {
-			intRegisterAddresses.remove(action);
+		if (ioName != null) {
+			lastWrittenIntValues.remove(ioName);
 		}
 	}
 
@@ -128,41 +122,20 @@ public class StatusFeedbackService {
 
 	/**
 	 * 全ての割り当て済み出力レジスタ（ブールおよび整数）をクリア (0 / false) する。
-	 * 汎用レジスタは一括バッチ送信でクリアし、通信オーバーヘッドを最小化する。
 	 */
 	public void clearAllOutputs() {
-		Map<Integer, Boolean> batchBoolWrites = new HashMap<Integer, Boolean>();
-		Map<Integer, Integer> batchIntWrites = new HashMap<Integer, Integer>();
-
 		for (IoStatusBinding binding : statusBindings.values()) {
 			if (binding.isAssigned()) {
-				String ioName = binding.getIoName();
-				Integer addr = boolRegisterAddresses.get(binding.getAction());
-				if (addr != null) {
-					batchBoolWrites.put(addr, false);
-				} else {
-					writeBooleanOutput(ioName, false);
-				}
-				lastWrittenBoolValues.put(ioName, Boolean.FALSE);
+				writeBooleanOutput(binding.getIoName(), false);
+				lastWrittenBoolValues.put(binding.getIoName(), false);
 			}
 		}
 		for (IoStatusCodeBinding binding : codeBindings.values()) {
 			if (binding.isAssigned()) {
-				String ioName = binding.getIoName();
-				Integer addr = intRegisterAddresses.get(binding.getAction());
-				if (addr != null) {
-					batchIntWrites.put(addr, 0);
-				} else {
-					writeIntegerOutput(ioName, 0);
-				}
-				lastWrittenIntValues.put(ioName, 0);
+				writeIntegerOutput(binding.getIoName(), 0);
+				lastWrittenIntValues.put(binding.getIoName(), 0);
 			}
 		}
-
-		if (!batchBoolWrites.isEmpty() || !batchIntWrites.isEmpty()) {
-			primaryClient.writeOutputRegistersBatch(batchBoolWrites, batchIntWrites);
-		}
-
 		currentStatus = RobotStatus.disconnected();
 	}
 
@@ -244,25 +217,10 @@ public class StatusFeedbackService {
 			return;
 		}
 
-		// 実際に割り当てられているステータス項目のみを判別
-		boolean needRemote = isStatusActionNeeded(StatusOutputAction.IS_IN_REMOTE_CONTROL);
-		boolean needRunning = isStatusActionNeeded(StatusOutputAction.IS_PROGRAM_RUNNING);
-		boolean needMode = isStatusActionNeeded(StatusOutputAction.IS_ROBOT_POWER_ON)
-				|| isStatusActionNeeded(StatusOutputAction.IS_ROBOT_READY)
-				|| isCodeActionNeeded(StatusCodeOutputAction.ROBOT_MODE_CODE);
-		boolean needSafety = isStatusActionNeeded(StatusOutputAction.IS_SAFETY_NORMAL)
-				|| isStatusActionNeeded(StatusOutputAction.IS_PROTECTIVE_STOPPED)
-				|| isStatusActionNeeded(StatusOutputAction.IS_EMERGENCY_STOPPED)
-				|| isCodeActionNeeded(StatusCodeOutputAction.SAFETY_STATUS_CODE);
-		boolean needProgState = isCodeActionNeeded(StatusCodeOutputAction.PROGRAM_STATE_CODE);
-
-		// 1. Dashboard Server から必要な項目のみを軽量取得 (未割り当ての項目は問い合わせを完全スキップ)
-		RobotStatus status = dashboardClient.queryRobotStatusOptimized(
-				needRemote, needRunning, needMode, needSafety, needProgState, currentStatus);
+		// 1. Dashboard Server から最新のロボット状態を取得
+		// 画面表示（② 出力状態タブ）と実際の出力の整合性を保つため常時全状態を取得
+		RobotStatus status = dashboardClient.queryRobotStatus();
 		this.currentStatus = status;
-
-		Map<Integer, Boolean> batchBoolWrites = new HashMap<Integer, Boolean>();
-		Map<Integer, Integer> batchIntWrites = new HashMap<Integer, Integer>();
 
 		// 2. ブール状態出力の更新 (常時追従)
 		for (IoStatusBinding binding : statusBindings.values()) {
@@ -276,14 +234,10 @@ public class StatusFeedbackService {
 
 			// 初回または値が変化した場合に書き込み
 			if (lastVal == null || lastVal.booleanValue() != currentValue) {
-				Integer addr = boolRegisterAddresses.get(binding.getAction());
-				if (addr != null) {
-					batchBoolWrites.put(addr, currentValue);
-				} else {
-					// デジタル出力等
-					writeBooleanOutput(ioName, currentValue);
+				boolean ok = writeBooleanOutput(ioName, currentValue);
+				if (ok) {
+					lastWrittenBoolValues.put(ioName, currentValue ? Boolean.TRUE : Boolean.FALSE);
 				}
-				lastWrittenBoolValues.put(ioName, currentValue ? Boolean.TRUE : Boolean.FALSE);
 			}
 		}
 
@@ -299,30 +253,12 @@ public class StatusFeedbackService {
 			Integer lastVal = lastWrittenIntValues.get(ioName);
 
 			if (lastVal == null || lastVal.intValue() != currentVal) {
-				Integer addr = intRegisterAddresses.get(binding.getAction());
-				if (addr != null) {
-					batchIntWrites.put(addr, currentVal);
-				} else {
-					writeIntegerOutput(ioName, currentVal);
+				boolean ok = writeIntegerOutput(ioName, currentVal);
+				if (ok) {
+					lastWrittenIntValues.put(ioName, currentVal);
 				}
-				lastWrittenIntValues.put(ioName, currentVal);
 			}
 		}
-
-		// 汎用レジスタの書き込みを 1 つの URScript パケットで一括送信
-		if (!batchBoolWrites.isEmpty() || !batchIntWrites.isEmpty()) {
-			primaryClient.writeOutputRegistersBatch(batchBoolWrites, batchIntWrites);
-		}
-	}
-
-	private boolean isStatusActionNeeded(StatusOutputAction action) {
-		IoStatusBinding b = statusBindings.get(action);
-		return b != null && b.isAssigned();
-	}
-
-	private boolean isCodeActionNeeded(StatusCodeOutputAction action) {
-		IoStatusCodeBinding b = codeBindings.get(action);
-		return b != null && b.isAssigned();
 	}
 
 	/**
@@ -333,24 +269,28 @@ public class StatusFeedbackService {
 			return false;
 		}
 
+		boolean result = false;
 		// 汎用ブール出力レジスタ (例: output_bit_register_64)
 		if (ioName.startsWith("output_bit_register_")) {
 			try {
 				int address = Integer.parseInt(ioName.substring("output_bit_register_".length()).trim());
-				return primaryClient.writeOutputBooleanRegister(address, value);
+				result = primaryClient.writeOutputBooleanRegister(address, value);
 			} catch (NumberFormatException ignored) {}
-			return false;
+		} else {
+			// デジタル出力 (DigitalIO) - キャッシュからO(1)で即時取得
+			DigitalIO dio = digitalIoCache.get(ioName);
+			if (dio == null) {
+				dio = digitalIoCache.get(ioName.toLowerCase());
+			}
+			if (dio != null) {
+				result = dio.setValue(value);
+			}
 		}
 
-		// デジタル出力 (DigitalIO) - キャッシュからO(1)で即時取得
-		DigitalIO dio = digitalIoCache.get(ioName);
-		if (dio == null) {
-			dio = digitalIoCache.get(ioName.toLowerCase());
+		if (monitorService != null) {
+			monitorService.addLog("Bit出力: " + ioName + " = " + (value ? "1(ON)" : "0(OFF)") + (result ? " [成功]" : " [失敗/未接続]"));
 		}
-		if (dio != null) {
-			return dio.setValue(value);
-		}
-		return false;
+		return result;
 	}
 
 	/**
@@ -361,13 +301,18 @@ public class StatusFeedbackService {
 			return false;
 		}
 
+		boolean result = false;
 		if (ioName.startsWith("output_int_register_")) {
 			try {
 				int address = Integer.parseInt(ioName.substring("output_int_register_".length()).trim());
-				return primaryClient.writeOutputIntegerRegister(address, value);
+				result = primaryClient.writeOutputIntegerRegister(address, value);
 			} catch (NumberFormatException ignored) {}
 		}
-		return false;
+
+		if (monitorService != null) {
+			monitorService.addLog("Int出力: " + ioName + " = " + value + (result ? " [成功]" : " [失敗/未接続]"));
+		}
+		return result;
 	}
 
 	public Boolean getLastWrittenBool(String ioName) {

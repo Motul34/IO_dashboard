@@ -137,40 +137,45 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	@Override
 	public void openView() {
-		// 1. 利用可能な IO リストを生成して View のコンボボックスに供給
-		List<String> inputOptions = buildInputOptions();
-		List<String> outputBoolOptions = buildOutputBoolOptions();
-		List<String> outputIntOptions = buildOutputIntOptions();
+		view.setUpdatingUI(true);
+		try {
+			// 1. 利用可能な IO リストを生成して View のコンボボックスに供給
+			List<String> inputOptions = buildInputOptions();
+			List<String> outputBoolOptions = buildOutputBoolOptions();
+			List<String> outputIntOptions = buildOutputIntOptions();
 
-		view.populateInputIoOptions(inputOptions);
-		view.populateOutputBoolOptions(outputBoolOptions);
-		view.populateOutputIntOptions(outputIntOptions);
+			view.populateInputIoOptions(inputOptions);
+			view.populateOutputBoolOptions(outputBoolOptions);
+			view.populateOutputIntOptions(outputIntOptions);
 
-		// 2. 現在の保存値を View に反映
-		view.setEnabledCheckbox(monitorService.isEnabled());
-		view.setProgramPath(model.get(KEY_PROGRAM_PATH, "/programs/default.urp"));
+			// 2. 現在の保存値を View に反映
+			view.setEnabledCheckbox(monitorService.isEnabled());
+			view.setProgramPath(model.get(KEY_PROGRAM_PATH, "/programs/default.urp"));
 
-		for (CommandAction action : CommandAction.values()) {
-			IoCommandBinding b = monitorService.getCommandBinding(action);
-			if (b != null) view.selectCommandIo(action, b.getIoName());
+			for (CommandAction action : CommandAction.values()) {
+				IoCommandBinding b = monitorService.getCommandBinding(action);
+				if (b != null) view.selectCommandIo(action, b.getIoName());
+			}
+
+			for (StatusOutputAction action : StatusOutputAction.values()) {
+				IoStatusBinding b = feedbackService.getStatusBinding(action);
+				if (b != null) view.selectStatusIo(action, b.getIoName());
+			}
+
+			for (StatusCodeOutputAction action : StatusCodeOutputAction.values()) {
+				IoStatusCodeBinding b = feedbackService.getCodeBinding(action);
+				if (b != null) view.selectStatusCodeIo(action, b.getIoName());
+			}
+
+			view.selectHandshakeIos(
+					model.get(KEY_HANDSHAKE_BUSY, "(使用しない)"),
+					model.get(KEY_HANDSHAKE_DONE, "(使用しない)"),
+					model.get(KEY_HANDSHAKE_ERROR, "(使用しない)"),
+					model.get(KEY_HANDSHAKE_ERRCODE, "(使用しない)")
+			);
+		} finally {
+			view.setUpdatingUI(false);
 		}
-
-		for (StatusOutputAction action : StatusOutputAction.values()) {
-			IoStatusBinding b = feedbackService.getStatusBinding(action);
-			if (b != null) view.selectStatusIo(action, b.getIoName());
-		}
-
-		for (StatusCodeOutputAction action : StatusCodeOutputAction.values()) {
-			IoStatusCodeBinding b = feedbackService.getCodeBinding(action);
-			if (b != null) view.selectStatusCodeIo(action, b.getIoName());
-		}
-
-		view.selectHandshakeIos(
-				model.get(KEY_HANDSHAKE_BUSY, "(使用しない)"),
-				model.get(KEY_HANDSHAKE_DONE, "(使用しない)"),
-				model.get(KEY_HANDSHAKE_ERROR, "(使用しない)"),
-				model.get(KEY_HANDSHAKE_ERRCODE, "(使用しない)")
-		);
 
 		// 3. UI 定期更新タスクの開始 (2000ms 周期で CPU 負荷を最小化)
 		monitorService.refreshIoCache();
@@ -302,11 +307,13 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	public void onStatusIoSelected(StatusOutputAction action, String ioName) {
 		model.set("status_" + action.name(), ioName);
 		feedbackService.setStatusBinding(action, ioName);
+		monitorService.addLog("状態出力割付変更: " + action.getDisplayName() + " -> " + ioName);
 	}
 
 	public void onStatusCodeIoSelected(StatusCodeOutputAction action, String ioName) {
 		model.set("code_" + action.name(), ioName);
 		feedbackService.setCodeBinding(action, ioName);
+		monitorService.addLog("コード出力割付変更: " + action.getDisplayName() + " -> " + ioName);
 	}
 
 	public void onHandshakeChanged() {

@@ -24,7 +24,6 @@ public class PrimaryInterfaceClient {
 	private Socket socket;
 	private PrintWriter writer;
 	private long lastConnectAttemptTime = 0;
-	private Thread drainThread;
 
 	public PrimaryInterfaceClient() {
 		this(DEFAULT_HOST);
@@ -63,12 +62,13 @@ public class PrimaryInterfaceClient {
 		for (int port : candidatePorts) {
 			try {
 				Socket s = new Socket();
+				s.setTcpNoDelay(true);
+				s.setKeepAlive(true);
 				s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
 				writer = new PrintWriter(s.getOutputStream(), true);
 				socket = s;
 				activePort = port;
 				LOGGER.info("Connected to Primary/Secondary Interface on " + host + ":" + port);
-				startDrainThread(s);
 				return true;
 			} catch (IOException ignored) {
 			}
@@ -79,10 +79,6 @@ public class PrimaryInterfaceClient {
 	}
 
 	public synchronized void disconnect() {
-		if (drainThread != null) {
-			drainThread.interrupt();
-			drainThread = null;
-		}
 		if (writer != null) {
 			try { writer.close(); } catch (Exception ignored) {}
 			writer = null;
@@ -91,35 +87,6 @@ public class PrimaryInterfaceClient {
 			try { socket.close(); } catch (Exception ignored) {}
 			socket = null;
 		}
-	}
-
-	/**
-	 * UR コントローラからブロードキャストされる状態パケットを
-	 * 空読みして破棄するバックグラウンドスレッドを開始する。
-	 * TCP 受信バッファの溢れ (ZeroWindow) を防止する。
-	 */
-	private void startDrainThread(final Socket s) {
-		if (drainThread != null) {
-			drainThread.interrupt();
-		}
-		drainThread = new Thread(new Runnable() {
-			@Override
-			public void run() {
-				byte[] buf = new byte[4096];
-				try {
-					java.io.InputStream in = s.getInputStream();
-					while (!Thread.currentThread().isInterrupted()) {
-						int read = in.read(buf);
-						if (read < 0) break;
-					}
-				} catch (IOException e) {
-					// ソケットクローズ時は正常終了
-				}
-			}
-		});
-		drainThread.setDaemon(true);
-		drainThread.setName("UR-PrimaryDrain");
-		drainThread.start();
 	}
 
 	public synchronized boolean isConnected() {
@@ -141,8 +108,12 @@ public class PrimaryInterfaceClient {
 		}
 
 		try {
-			writer.print(script);
-			writer.flush();
+			if (socket == null || socket.isClosed()) {
+				throw new IOException("Socket is closed");
+			}
+			java.io.OutputStream out = socket.getOutputStream();
+			out.write(script.getBytes("UTF-8"));
+			out.flush();
 			return true;
 		} catch (Exception e) {
 			LOGGER.log(Level.WARNING, "Error sending script to Primary Interface: " + e.getMessage());
@@ -150,8 +121,9 @@ public class PrimaryInterfaceClient {
 			// 1回再試行
 			if (connect()) {
 				try {
-					writer.print(script);
-					writer.flush();
+					java.io.OutputStream out = socket.getOutputStream();
+					out.write(script.getBytes("UTF-8"));
+					out.flush();
 					return true;
 				} catch (Exception ignored) {}
 			}

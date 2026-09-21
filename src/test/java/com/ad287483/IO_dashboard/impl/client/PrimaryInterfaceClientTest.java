@@ -87,6 +87,23 @@ public class PrimaryInterfaceClientTest {
 		assertNotNull(script3);
 		assertTrue(script3.contains("write_output_integer_register(24, 7)"));
 
+		// 4. 一括バッチ書き込みテスト
+		java.util.Map<Integer, Boolean> boolWrites = new java.util.HashMap<Integer, Boolean>();
+		boolWrites.put(10, true);
+		boolWrites.put(11, false);
+		java.util.Map<Integer, Integer> intWrites = new java.util.HashMap<Integer, Integer>();
+		intWrites.put(5, 42);
+
+		boolean ok4 = client.writeOutputRegistersBatch(boolWrites, intWrites);
+		assertTrue(ok4);
+		String script4 = receivedScripts.poll(2, java.util.concurrent.TimeUnit.SECONDS);
+		assertNotNull(script4);
+		assertTrue(script4.contains("sec writeRegsBatch():"));
+		assertTrue(script4.contains("write_output_boolean_register(10, True)"));
+		assertTrue(script4.contains("write_output_boolean_register(11, False)"));
+		assertTrue(script4.contains("write_output_integer_register(5, 42)"));
+		assertTrue(script4.endsWith("end\n"));
+
 		client.disconnect();
 		assertFalse(client.isConnected());
 	}

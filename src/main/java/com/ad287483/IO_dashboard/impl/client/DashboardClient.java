@@ -17,7 +17,7 @@ public class DashboardClient {
 	private static final String DEFAULT_HOST = "127.0.0.1";
 	private static final int DEFAULT_PORT = 29999;
 	private static final int CONNECT_TIMEOUT_MS = 2000;
-	private static final int READ_TIMEOUT_MS = 1500;
+	private static final int READ_TIMEOUT_MS = 3000;
 
 	private final String host;
 	private final int port;

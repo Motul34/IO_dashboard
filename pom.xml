@@ -19,7 +19,7 @@
 		<!--********************************************************************-->
 		<!--******************* BEGINNING OF URCAP META DATA *******************-->
 		<urcap.symbolicname>com.ad287483.IO_dashboard</urcap.symbolicname>
-		<urcap.vendor>TMEJ</urcap.vendor>
+		<urcap.vendor>Takuya Matsuo</urcap.vendor>
 		<urcap.contactAddress>ad287483</urcap.contactAddress>
 		<urcap.copyright>Copyright (C) 2026 Takuya Matsuo</urcap.copyright>
 		<urcap.description>Ethernet/IP経由のDashboard制御・状態出力</urcap.description>
