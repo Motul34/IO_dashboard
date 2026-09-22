@@ -14,15 +14,19 @@ import com.ur.urcap.api.domain.io.IOModel;
 import com.ur.urcap.api.domain.script.ScriptWriter;
 
 import javax.swing.*;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Installation Node のロジック、DataModel 永続化、ライフサイクルおよび UI 更新を統括するコントローラ。
+ * Installation Node ??????DataModel ?????????????? UI ??????????????
+ * ??????????????????IO?????????????????????????????
  */
 public class IoDashboardInstallationNodeContribution implements InstallationNodeContribution {
 
@@ -42,9 +46,17 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	private final IoMonitorService monitorService;
 	private final StatusFeedbackService feedbackService;
 
-	private final ScheduledExecutorService uiScheduler = Executors.newSingleThreadScheduledExecutor();
-	private final java.util.concurrent.ExecutorService asyncExecutor = Executors.newCachedThreadPool();
+	private final ScheduledExecutorService uiScheduler;
+	private final ExecutorService asyncExecutor;
+	private final boolean ownsExecutors;
 	private ScheduledFuture<?> uiUpdateTask;
+
+	// UI?????????
+	private List<String> cachedInputOptions = null;
+	private List<String> cachedOutputBoolOptions = null;
+	private List<String> cachedOutputIntOptions = null;
+	private long lastCheckedLogSeq = -1;
+	private final AtomicBoolean isConnecting = new AtomicBoolean(false);
 
 	public IoDashboardInstallationNodeContribution(InstallationAPIProvider apiProvider,
 	                                             IoDashboardInstallationNodeView view,
@@ -54,6 +66,35 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	                                             PrimaryInterfaceClient primaryClient,
 	                                             IoMonitorService monitorService,
 	                                             StatusFeedbackService feedbackService) {
+		this(apiProvider, view, model, context, dashboardClient, primaryClient, monitorService, feedbackService,
+				Executors.newSingleThreadScheduledExecutor(), Executors.newCachedThreadPool(), true);
+	}
+
+	public IoDashboardInstallationNodeContribution(InstallationAPIProvider apiProvider,
+	                                             IoDashboardInstallationNodeView view,
+	                                             DataModel model,
+	                                             CreationContext context,
+	                                             DashboardClient dashboardClient,
+	                                             PrimaryInterfaceClient primaryClient,
+	                                             IoMonitorService monitorService,
+	                                             StatusFeedbackService feedbackService,
+	                                             ScheduledExecutorService uiScheduler,
+	                                             ExecutorService asyncExecutor) {
+		this(apiProvider, view, model, context, dashboardClient, primaryClient, monitorService, feedbackService,
+				uiScheduler, asyncExecutor, false);
+	}
+
+	private IoDashboardInstallationNodeContribution(InstallationAPIProvider apiProvider,
+	                                               IoDashboardInstallationNodeView view,
+	                                               DataModel model,
+	                                               CreationContext context,
+	                                               DashboardClient dashboardClient,
+	                                               PrimaryInterfaceClient primaryClient,
+	                                               IoMonitorService monitorService,
+	                                               StatusFeedbackService feedbackService,
+	                                               ScheduledExecutorService uiScheduler,
+	                                               ExecutorService asyncExecutor,
+	                                               boolean ownsExecutors) {
 		this.apiProvider = apiProvider;
 		this.view = view;
 		this.model = model;
@@ -61,20 +102,23 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		this.primaryClient = primaryClient;
 		this.monitorService = monitorService;
 		this.feedbackService = feedbackService;
+		this.uiScheduler = uiScheduler;
+		this.asyncExecutor = asyncExecutor;
+		this.ownsExecutors = ownsExecutors;
 
-		// IOModel を各サービスに設定
+		// IOModel ?????????
 		IOModel ioModel = apiProvider.getInstallationAPI().getIOModel();
 		this.monitorService.setIoModel(ioModel);
 		this.feedbackService.setIoModel(ioModel);
 
-		// 初期設定の復元
+		// ???????
 		restoreSettings();
 
-		// バックグラウンドサービスの開始
+		// ???????????????
 		this.monitorService.start();
 		this.feedbackService.start();
 
-		// 有効時のみ自動接続
+		// ?????????
 		if (monitorService.isEnabled()) {
 			triggerAutoConnect();
 		}
@@ -84,17 +128,27 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		if (!monitorService.isEnabled()) {
 			return;
 		}
+		if (dashboardClient.isConnected() && primaryClient.isConnected()) {
+			return;
+		}
+		if (!isConnecting.compareAndSet(false, true)) {
+			return;
+		}
 		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
-				if (!monitorService.isEnabled()) {
-					return;
-				}
-				if (!dashboardClient.isConnected()) {
-					dashboardClient.connect();
-				}
-				if (!primaryClient.isConnected()) {
-					primaryClient.connect();
+				try {
+					if (!monitorService.isEnabled()) {
+						return;
+					}
+					if (!dashboardClient.isConnected()) {
+						dashboardClient.connect();
+					}
+					if (!primaryClient.isConnected()) {
+						primaryClient.connect();
+					}
+				} finally {
+					isConnecting.set(false);
 				}
 			}
 		});
@@ -105,9 +159,9 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		monitorService.setEnabled(enabled);
 		feedbackService.setEnabled(enabled);
 
-		// 入力コマンドバインディングの復元
+		// ????????????????
 		for (CommandAction action : CommandAction.values()) {
-			String savedIo = model.get("cmd_" + action.name(), "(未割り当て)");
+			String savedIo = model.get("cmd_" + action.name(), "(?????)");
 			String param = "";
 			if (action == CommandAction.LOAD_PROGRAM) {
 				param = model.get(KEY_PROGRAM_PATH, "/programs/default.urp");
@@ -115,23 +169,23 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			monitorService.setCommandBinding(action, savedIo, param);
 		}
 
-		// ブール状態出力バインディングの復元
+		// ?????????????????
 		for (StatusOutputAction action : StatusOutputAction.values()) {
-			String savedIo = model.get("status_" + action.name(), "(未割り当て)");
+			String savedIo = model.get("status_" + action.name(), "(?????)");
 			feedbackService.setStatusBinding(action, savedIo);
 		}
 
-		// 整数コード出力バインディングの復元
+		// ?????????????????
 		for (StatusCodeOutputAction action : StatusCodeOutputAction.values()) {
-			String savedIo = model.get("code_" + action.name(), "(使用しない)");
+			String savedIo = model.get("code_" + action.name(), "(?????)");
 			feedbackService.setCodeBinding(action, savedIo);
 		}
 
-		// ハンドシェイク設定の復元
-		String busy = model.get(KEY_HANDSHAKE_BUSY, "(使用しない)");
-		String done = model.get(KEY_HANDSHAKE_DONE, "(使用しない)");
-		String error = model.get(KEY_HANDSHAKE_ERROR, "(使用しない)");
-		String errCode = model.get(KEY_HANDSHAKE_ERRCODE, "(使用しない)");
+		// ????????????
+		String busy = model.get(KEY_HANDSHAKE_BUSY, "(?????)");
+		String done = model.get(KEY_HANDSHAKE_DONE, "(?????)");
+		String error = model.get(KEY_HANDSHAKE_ERROR, "(?????)");
+		String errCode = model.get(KEY_HANDSHAKE_ERRCODE, "(?????)");
 		monitorService.setHandshakeBindings(busy, done, error, errCode);
 	}
 
@@ -139,16 +193,28 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	public void openView() {
 		view.setUpdatingUI(true);
 		try {
-			// 1. 利用可能な IO リストを生成して View のコンボボックスに供給
+			// 1. ????? IO ????????????????? View ???????????
 			List<String> inputOptions = buildInputOptions();
 			List<String> outputBoolOptions = buildOutputBoolOptions();
 			List<String> outputIntOptions = buildOutputIntOptions();
 
-			view.populateInputIoOptions(inputOptions);
-			view.populateOutputBoolOptions(outputBoolOptions);
-			view.populateOutputIntOptions(outputIntOptions);
+			boolean optionsChanged = (cachedInputOptions == null
+					|| !inputOptions.equals(cachedInputOptions)
+					|| !outputBoolOptions.equals(cachedOutputBoolOptions)
+					|| !outputIntOptions.equals(cachedOutputIntOptions));
 
-			// 2. 現在の保存値を View に反映
+			if (optionsChanged) {
+				cachedInputOptions = inputOptions;
+				cachedOutputBoolOptions = outputBoolOptions;
+				cachedOutputIntOptions = outputIntOptions;
+				view.populateInputIoOptions(inputOptions);
+				view.populateOutputBoolOptions(outputBoolOptions);
+				view.populateOutputIntOptions(outputIntOptions);
+				monitorService.refreshIoCache();
+				feedbackService.refreshDigitalIoCache();
+			}
+
+			// 2. ??????? View ???
 			view.setEnabledCheckbox(monitorService.isEnabled());
 			view.setProgramPath(model.get(KEY_PROGRAM_PATH, "/programs/default.urp"));
 
@@ -168,21 +234,19 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			}
 
 			view.selectHandshakeIos(
-					model.get(KEY_HANDSHAKE_BUSY, "(使用しない)"),
-					model.get(KEY_HANDSHAKE_DONE, "(使用しない)"),
-					model.get(KEY_HANDSHAKE_ERROR, "(使用しない)"),
-					model.get(KEY_HANDSHAKE_ERRCODE, "(使用しない)")
+					model.get(KEY_HANDSHAKE_BUSY, "(?????)"),
+					model.get(KEY_HANDSHAKE_DONE, "(?????)"),
+					model.get(KEY_HANDSHAKE_ERROR, "(?????)"),
+					model.get(KEY_HANDSHAKE_ERRCODE, "(?????)")
 			);
 		} finally {
 			view.setUpdatingUI(false);
 		}
 
-		// 3. UI 定期更新タスクの開始 (2000ms 周期で CPU 負荷を最小化)
-		monitorService.refreshIoCache();
-		feedbackService.refreshDigitalIoCache();
-
+		// 3. UI ?????????? (2000ms ??? CPU ??????)
 		if (uiUpdateTask != null) {
 			uiUpdateTask.cancel(true);
+			uiUpdateTask = null;
 		}
 		uiUpdateTask = uiScheduler.scheduleWithFixedDelay(new Runnable() {
 			@Override
@@ -196,7 +260,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			}
 		}, 0, 2000, TimeUnit.MILLISECONDS);
 
-		// 4. 未接続の場合は即時自動接続
+		// 4. ?????????????
 		triggerAutoConnect();
 	}
 
@@ -206,11 +270,18 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			uiUpdateTask.cancel(true);
 			uiUpdateTask = null;
 		}
+		view.clearCaches();
+		lastCheckedLogSeq = -1;
+
+		if (ownsExecutors) {
+			uiScheduler.shutdownNow();
+			asyncExecutor.shutdownNow();
+		}
 	}
 
 	@Override
 	public void generateScript(ScriptWriter writer) {
-		// Installation 設定が適用されたことを示すログを出力
+		// Installation ??????????????????
 		writer.appendLine("# URCap: IO Dashboard Controller active");
 	}
 
@@ -221,7 +292,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			view.setConnectionStatus(dashboardClient.isConnected(), primaryClient.isConnected(), primaryClient.getActivePort());
 		}
 
-		// 入力現在値の更新 (UIスレッドでの高負荷な走査を排除し、監視スレッドの最新値を参照)
+		// ???????? (UI??????????????????????????????)
 		for (CommandAction action : CommandAction.values()) {
 			IoCommandBinding b = monitorService.getCommandBinding(action);
 			if (b != null && b.isAssigned()) {
@@ -232,27 +303,31 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			}
 		}
 
-		// 出力現在値の更新
+		// ????????
 		RobotStatus status = feedbackService.getCurrentStatus();
 		for (StatusOutputAction action : StatusOutputAction.values()) {
 			boolean val = action.evaluate(status);
 			view.updateOutputStatus(action, val);
 		}
 
-		// 整数コード現在値の更新
+		// ???????????
 		int lastErr = monitorService.getLastErrorCode();
 		for (StatusCodeOutputAction action : StatusCodeOutputAction.values()) {
 			int val = action.evaluate(status, lastErr);
 			view.updateCodeStatus(action, val);
 		}
 
-		// ログ更新 (ログタブ表示中のみ再描画を実行し、操作遅延を防止)
+		// ???? (????????????????????????)
 		if (view.isLogTabActive()) {
-			view.updateLogs(monitorService.getLogEntries());
+			long currentSeq = monitorService.getLogSequenceNumber();
+			if (currentSeq != lastCheckedLogSeq) {
+				lastCheckedLogSeq = currentSeq;
+				view.updateLogs(monitorService.getLogEntries());
+			}
 		}
 	}
 
-	// ------------------ イベントハンドラ群 ------------------
+	// ------------------ ????????? ------------------
 
 	public void onEnableToggled(final boolean enabled) {
 		model.set(KEY_ENABLED, enabled);
@@ -260,7 +335,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		feedbackService.setEnabled(enabled);
 
 		if (!enabled) {
-			// UI表示を直ちに「切断」に切り替え
+			// UI???????????????
 			view.setConnectionStatus(false, false, 0);
 		}
 
@@ -268,12 +343,12 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			@Override
 			public void run() {
 				if (!enabled) {
-					// 無効化時: 出力レジスタを0クリアし、ソケットを切断
+					// ????: ???????0????????????
 					feedbackService.clearAllOutputs();
 					monitorService.clearHandshakeOutputs();
 					dashboardClient.disconnect();
 					primaryClient.disconnect();
-					monitorService.addLog("監視サービスが無効化されました: 全出力を0クリアし通信を切断しました");
+					monitorService.addLog("???????????????: ????0?????????????");
 					SwingUtilities.invokeLater(new Runnable() {
 						@Override
 						public void run() {
@@ -281,8 +356,8 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 						}
 					});
 				} else {
-					// 有効化時: 再接続を開始
-					monitorService.addLog("監視サービスが有効化されました: 自動接続を開始します");
+					// ????: ??????
+					monitorService.addLog("???????????????: ??????????");
 					triggerAutoConnect();
 				}
 			}
@@ -301,19 +376,19 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		if (b != null) {
 			b.setParameter(path);
 		}
-		monitorService.addLog("ロード対象プログラムパスを更新: " + path);
+		monitorService.addLog("???????????????: " + path);
 	}
 
 	public void onStatusIoSelected(StatusOutputAction action, String ioName) {
 		model.set("status_" + action.name(), ioName);
 		feedbackService.setStatusBinding(action, ioName);
-		monitorService.addLog("状態出力割付変更: " + action.getDisplayName() + " -> " + ioName);
+		monitorService.addLog("????????: " + action.getDisplayName() + " -> " + ioName);
 	}
 
 	public void onStatusCodeIoSelected(StatusCodeOutputAction action, String ioName) {
 		model.set("code_" + action.name(), ioName);
 		feedbackService.setCodeBinding(action, ioName);
-		monitorService.addLog("コード出力割付変更: " + action.getDisplayName() + " -> " + ioName);
+		monitorService.addLog("?????????: " + action.getDisplayName() + " -> " + ioName);
 	}
 
 	public void onHandshakeChanged() {
@@ -333,7 +408,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	public void executeActionManually(CommandAction action) {
 		IoCommandBinding b = monitorService.getCommandBinding(action);
 		if (b == null) {
-			b = new IoCommandBinding(action, "手動テスト", view.getProgramPath());
+			b = new IoCommandBinding(action, "?????", view.getProgramPath());
 		}
 		final IoCommandBinding toExec = b;
 		asyncExecutor.submit(new Runnable() {
@@ -348,12 +423,12 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
-				monitorService.addLog("接続テスト開始...");
+				monitorService.addLog("???????...");
 				dashboardClient.disconnect();
 				boolean dOk = dashboardClient.connect();
 				primaryClient.disconnect();
 				boolean pOk = primaryClient.connect();
-				monitorService.addLog("接続結果: Dashboard=" + (dOk ? "OK" : "NG") + ", Primary=" + (pOk ? "OK" : "NG"));
+				monitorService.addLog("????: Dashboard=" + (dOk ? "OK" : "NG") + ", Primary=" + (pOk ? "OK" : "NG"));
 			}
 		});
 	}
@@ -363,18 +438,18 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		view.updateLogs(monitorService.getLogEntries());
 	}
 
-	// ------------------ IO 候補生成ヘルパー ------------------
+	// ------------------ IO ???????? ------------------
 
 	private List<String> buildInputOptions() {
 		List<String> list = new ArrayList<String>();
-		list.add("(未割り当て)");
+		list.add("(?????)");
 
-		// 汎用ブール入力レジスタ: bit 0 〜 64
+		// ???????????: bit 0 ? 64
 		for (int i = 0; i <= 64; i++) {
 			list.add("input_bit_register_" + i);
 		}
 
-		// デジタル入力
+		// ??????
 		IOModel ioModel = apiProvider.getInstallationAPI().getIOModel();
 		if (ioModel != null) {
 			for (DigitalIO dio : ioModel.getIOs(DigitalIO.class)) {
@@ -388,14 +463,14 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	private List<String> buildOutputBoolOptions() {
 		List<String> list = new ArrayList<String>();
-		list.add("(未割り当て)");
+		list.add("(?????)");
 
-		// 汎用ブール出力レジスタ: bit 0 〜 64
+		// ???????????: bit 0 ? 64
 		for (int i = 0; i <= 64; i++) {
 			list.add("output_bit_register_" + i);
 		}
 
-		// デジタル出力
+		// ??????
 		IOModel ioModel = apiProvider.getInstallationAPI().getIOModel();
 		if (ioModel != null) {
 			for (DigitalIO dio : ioModel.getIOs(DigitalIO.class)) {
@@ -409,9 +484,9 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	private List<String> buildOutputIntOptions() {
 		List<String> list = new ArrayList<String>();
-		list.add("(使用しない)");
+		list.add("(?????)");
 
-		// 汎用整数出力レジスタ: int 0 〜 47
+		// ??????????: int 0 ? 47
 		for (int i = 0; i <= 47; i++) {
 			list.add("output_int_register_" + i);
 		}

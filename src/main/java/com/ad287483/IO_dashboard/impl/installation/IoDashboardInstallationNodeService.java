@@ -14,9 +14,13 @@ import com.ur.urcap.api.contribution.installation.swing.SwingInstallationNodeSer
 import com.ur.urcap.api.domain.data.DataModel;
 
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 /**
- * PolyScope に IO Dashboard の Installation Node を提供するサービスファクトリ。
+ * PolyScope ? IO Dashboard ? Installation Node ???????????????
+ * ???????????????????????????????????
  */
 public class IoDashboardInstallationNodeService implements SwingInstallationNodeService<IoDashboardInstallationNodeContribution, IoDashboardInstallationNodeView> {
 
@@ -24,6 +28,10 @@ public class IoDashboardInstallationNodeService implements SwingInstallationNode
 	private final PrimaryInterfaceClient primaryClient = new PrimaryInterfaceClient();
 	private final IoMonitorService monitorService = new IoMonitorService(dashboardClient, primaryClient);
 	private final StatusFeedbackService feedbackService = new StatusFeedbackService(dashboardClient, primaryClient, monitorService);
+
+	// ??????????????????????
+	private final ScheduledExecutorService uiScheduler = Executors.newSingleThreadScheduledExecutor();
+	private final ExecutorService asyncExecutor = Executors.newCachedThreadPool();
 
 	@Override
 	public void configureContribution(ContributionConfiguration configuration) {
@@ -54,7 +62,9 @@ public class IoDashboardInstallationNodeService implements SwingInstallationNode
 				dashboardClient,
 				primaryClient,
 				monitorService,
-				feedbackService
+				feedbackService,
+				uiScheduler,
+				asyncExecutor
 		);
 	}
 
@@ -63,5 +73,7 @@ public class IoDashboardInstallationNodeService implements SwingInstallationNode
 		feedbackService.shutdown();
 		dashboardClient.disconnect();
 		primaryClient.disconnect();
+		uiScheduler.shutdownNow();
+		asyncExecutor.shutdownNow();
 	}
 }

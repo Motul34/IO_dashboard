@@ -580,14 +580,36 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		updateComboItems(errorCodeIoComboBox, intOptions);
 	}
 
+	public void clearCaches() {
+		lastInputStatusCache.clear();
+		lastOutputStatusCache.clear();
+		lastCodeStatusCache.clear();
+		lastDashboardConnected = null;
+		lastPrimaryConnected = null;
+		lastPrimaryPort = -1;
+		lastLogLineCount = 0;
+	}
+
 	private void updateComboItems(JComboBox combo, List<String> items) {
-		if (combo == null) return;
+		if (combo == null || items == null) return;
 		boolean prev = isUpdatingUI;
 		isUpdatingUI = true;
 		try {
+			ComboBoxModel currentModel = combo.getModel();
+			boolean identical = (currentModel != null && currentModel.getSize() == items.size());
+			if (identical) {
+				for (int i = 0; i < items.size(); i++) {
+					Object el = currentModel.getElementAt(i);
+					if (el == null || !el.equals(items.get(i))) {
+						identical = false;
+						break;
+					}
+				}
+			}
 			Object selected = combo.getSelectedItem();
-			// DefaultComboBoxModel による一括設定で Swing イベントを1回に集約
-			combo.setModel(new DefaultComboBoxModel(items.toArray(new String[0])));
+			if (!identical) {
+				combo.setModel(new DefaultComboBoxModel(items.toArray(new String[0])));
+			}
 			if (selected != null && items.contains(selected)) {
 				combo.setSelectedItem(selected);
 			}

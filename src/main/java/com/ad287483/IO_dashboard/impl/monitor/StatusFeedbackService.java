@@ -41,6 +41,7 @@ public class StatusFeedbackService {
 	private final Map<StatusCodeOutputAction, IoStatusCodeBinding> codeBindings = new ConcurrentHashMap<StatusCodeOutputAction, IoStatusCodeBinding>();
 	private final Map<String, Boolean> lastWrittenBoolValues = new ConcurrentHashMap<String, Boolean>();
 	private final Map<String, Integer> lastWrittenIntValues = new ConcurrentHashMap<String, Integer>();
+	private int pollCycleCount = 0;
 
 	public StatusFeedbackService(DashboardClient dashboardClient, PrimaryInterfaceClient primaryClient, IoMonitorService monitorService) {
 		this.dashboardClient = dashboardClient;
@@ -212,6 +213,16 @@ public class StatusFeedbackService {
 	/**
 	 * 毎周期のステータス更新処理。
 	 */
+	private boolean isActionAssigned(StatusOutputAction action) {
+		IoStatusBinding b = statusBindings.get(action);
+		return b != null && b.isAssigned();
+	}
+
+	private boolean isCodeActionAssigned(StatusCodeOutputAction action) {
+		IoStatusCodeBinding b = codeBindings.get(action);
+		return b != null && b.isAssigned();
+	}
+
 	private void updateFeedback() {
 		if (!enabled) {
 			return;
@@ -219,7 +230,30 @@ public class StatusFeedbackService {
 
 		// 1. Dashboard Server から最新のロボット状態を取得
 		// 画面表示（② 出力状態タブ）と実際の出力の整合性を保つため常時全状態を取得
-		RobotStatus status = dashboardClient.queryRobotStatus();
+		pollCycleCount++;
+
+		// ??????????????????
+		boolean needRemote = isActionAssigned(StatusOutputAction.IS_IN_REMOTE_CONTROL);
+		boolean needRunning = isActionAssigned(StatusOutputAction.IS_PROGRAM_RUNNING);
+		boolean needMode = isActionAssigned(StatusOutputAction.IS_ROBOT_POWER_ON)
+				|| isActionAssigned(StatusOutputAction.IS_ROBOT_READY)
+				|| isCodeActionAssigned(StatusCodeOutputAction.ROBOT_MODE_CODE);
+		boolean needSafety = isActionAssigned(StatusOutputAction.IS_SAFETY_NORMAL)
+				|| isActionAssigned(StatusOutputAction.IS_PROTECTIVE_STOPPED)
+				|| isActionAssigned(StatusOutputAction.IS_EMERGENCY_STOPPED)
+				|| isCodeActionAssigned(StatusCodeOutputAction.SAFETY_STATUS_CODE);
+		boolean needProgState = isCodeActionAssigned(StatusCodeOutputAction.PROGRAM_STATE_CODE);
+		if (pollCycleCount % 4 == 0) {
+			needRemote = true;
+			needRunning = true;
+			needMode = true;
+			needSafety = true;
+			needProgState = true;
+		}
+
+		// 1. Dashboard Server ?????????????? (??????)
+		RobotStatus status = dashboardClient.queryRobotStatusOptimized(
+				needRemote, needRunning, needMode, needSafety, needProgState, currentStatus);
 		this.currentStatus = status;
 
 		// 2. ブール状態出力の更新 (常時追従)

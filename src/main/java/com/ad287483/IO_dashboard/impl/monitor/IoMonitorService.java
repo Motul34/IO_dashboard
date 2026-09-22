@@ -38,6 +38,7 @@ public class IoMonitorService {
 	private final Map<String, Boolean> previousIoStates = new ConcurrentHashMap<String, Boolean>();
 	private final ArrayDeque<String> logRingBuffer = new ArrayDeque<String>();
 	private final SimpleDateFormat logDateFormat = new SimpleDateFormat("HH:mm:ss.SSS");
+	private volatile long logSequenceNumber = 0;
 
 	// コマンド実行ハンドシェイク用
 	private String busyIoName;
@@ -127,9 +128,14 @@ public class IoMonitorService {
 		}
 	}
 
+	public long getLogSequenceNumber() {
+		return logSequenceNumber;
+	}
+
 	public void clearLogs() {
 		synchronized (logRingBuffer) {
 			logRingBuffer.clear();
+			logSequenceNumber++;
 		}
 	}
 
@@ -142,6 +148,7 @@ public class IoMonitorService {
 			while (logRingBuffer.size() > MAX_LOG_ENTRIES) {
 				logRingBuffer.removeFirst();
 			}
+			logSequenceNumber++;
 		}
 	}
 
