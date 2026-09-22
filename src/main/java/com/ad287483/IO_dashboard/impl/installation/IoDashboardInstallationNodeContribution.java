@@ -75,16 +75,37 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		return display != null ? display : canonicalName;
 	}
 
-	private String normalizeRegisterName(Register reg) {
-		if (reg == null) return null;
+	private int extractRegisterIndex(Register reg) {
+		if (reg == null) return -1;
 		String defName = reg.getDefaultName();
-		if (defName == null || defName.isEmpty()) return null;
-		return defName.replace("[", "_").replace("]", "").trim();
+		if (defName == null || defName.isEmpty()) return -1;
+		java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\d+").matcher(defName);
+		if (m.find()) {
+			try {
+				return Integer.parseInt(m.group());
+			} catch (NumberFormatException ignored) {}
+		}
+		return -1;
+	}
+
+	private boolean isUserCustomName(String custom, String defName, String canon) {
+		if (custom == null || custom.trim().isEmpty()) return false;
+		String c = custom.trim();
+		if (c.equalsIgnoreCase(defName) || c.equalsIgnoreCase(canon)) return false;
+		String lower = c.toLowerCase();
+		if (lower.startsWith("gp_bool_") || lower.startsWith("gp_int_")
+				|| lower.startsWith("gpbi") || lower.startsWith("gpbo")
+				|| lower.startsWith("gpii") || lower.startsWith("gpio")
+				|| lower.startsWith("input_bit_") || lower.startsWith("output_bit_")
+				|| lower.startsWith("input_int_") || lower.startsWith("output_int_")) {
+			return false;
+		}
+		return true;
 	}
 
 	/**
 	 * IOModel からレジスタのカスタム名を収集し、双方向マッピングテーブルを最新化する。
-	 * 変更されていないデフォルトのものは標準識別名をそのまま表示名とする。
+	 * PolyScopeの GP_bool_in[X] / GP_bool_out[X] 形式のインデックスを自動抽出して標準キーに紐付ける。
 	 */
 	private void refreshNameMappings() {
 		canonicalToDisplayMap.clear();
@@ -99,11 +120,14 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		if (ioModel != null) {
 			try {
 				for (BooleanRegister reg : ioModel.getIOs(BooleanRegister.class)) {
-					String norm = normalizeRegisterName(reg);
-					if (norm != null) {
+					int index = extractRegisterIndex(reg);
+					if (index >= 0) {
+						String canon = reg.isInput()
+								? (IoConstants.INPUT_BIT_PREFIX + index)
+								: (IoConstants.OUTPUT_BIT_PREFIX + index);
 						String custom = reg.getName();
-						if (custom != null && !custom.trim().isEmpty() && !custom.equals(reg.getDefaultName()) && !custom.equals(norm)) {
-							rawCustomNames.put(norm, custom.trim());
+						if (isUserCustomName(custom, reg.getDefaultName(), canon)) {
+							rawCustomNames.put(canon, custom.trim());
 						}
 					}
 				}
@@ -111,11 +135,14 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 			try {
 				for (IntegerRegister reg : ioModel.getIOs(IntegerRegister.class)) {
-					String norm = normalizeRegisterName(reg);
-					if (norm != null) {
+					int index = extractRegisterIndex(reg);
+					if (index >= 0) {
+						String canon = reg.isInput()
+								? ("input_int_register_" + index)
+								: (IoConstants.OUTPUT_INT_PREFIX + index);
 						String custom = reg.getName();
-						if (custom != null && !custom.trim().isEmpty() && !custom.equals(reg.getDefaultName()) && !custom.equals(norm)) {
-							rawCustomNames.put(norm, custom.trim());
+						if (isUserCustomName(custom, reg.getDefaultName(), canon)) {
+							rawCustomNames.put(canon, custom.trim());
 						}
 					}
 				}

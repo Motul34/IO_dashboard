@@ -6,6 +6,7 @@ import com.ur.urcap.api.domain.io.BooleanRegister;
 import com.ur.urcap.api.domain.io.DigitalIO;
 import com.ur.urcap.api.domain.io.IO;
 import com.ur.urcap.api.domain.io.IOModel;
+import com.ur.urcap.api.domain.io.Register;
 
 import java.io.IOException;
 import java.text.SimpleDateFormat;
@@ -80,17 +81,33 @@ public class IoMonitorService {
 				for (BooleanRegister reg : ioModel.getIOs(BooleanRegister.class)) {
 					String name = reg.getName() != null ? reg.getName().toLowerCase() : null;
 					String defName = reg.getDefaultName() != null ? reg.getDefaultName().toLowerCase() : null;
+					int index = extractRegisterIndex(reg);
 					if (reg.isInput()) {
 						if (name != null && !name.isEmpty()) booleanRegisterCache.put(name, reg);
-						if (defName != null && !defName.isEmpty()) {
-							booleanRegisterCache.put(defName, reg);
-							String norm = defName.replace("[", "_").replace("]", "").trim();
-							booleanRegisterCache.put(norm, reg);
+						if (defName != null && !defName.isEmpty()) booleanRegisterCache.put(defName, reg);
+						if (index >= 0) {
+							booleanRegisterCache.put(IoConstants.INPUT_BIT_PREFIX + index, reg);
+							booleanRegisterCache.put("input_bit_register[" + index + "]", reg);
+							booleanRegisterCache.put("gp_bool_in[" + index + "]", reg);
+							booleanRegisterCache.put("gpbi[" + index + "]", reg);
 						}
 					}
 				}
 			} catch (Throwable ignored) {}
 		}
+	}
+
+	private int extractRegisterIndex(Register reg) {
+		if (reg == null) return -1;
+		String defName = reg.getDefaultName();
+		if (defName == null || defName.isEmpty()) return -1;
+		java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\d+").matcher(defName);
+		if (m.find()) {
+			try {
+				return Integer.parseInt(m.group());
+			} catch (NumberFormatException ignored) {}
+		}
+		return -1;
 	}
 
 	public boolean getLastInputState(String ioName) {

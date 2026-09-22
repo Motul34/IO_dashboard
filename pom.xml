@@ -7,7 +7,7 @@
 
 	<groupId>com.ad287483</groupId>
 	<artifactId>IO_dashboard</artifactId>
-	<version>1.0.0</version>
+	<version>1.1.0</version>
 	<name>IO Dashboard</name>
 	<packaging>bundle</packaging>
 
