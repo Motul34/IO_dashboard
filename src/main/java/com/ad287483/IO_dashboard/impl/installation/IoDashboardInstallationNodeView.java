@@ -83,6 +83,37 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	private int lastPrimaryPort = -1;
 
 	// プログラム起因のUI更新中にイベントリスナーが誤発火して保存データを破壊するのを防ぐガードフラグ
+	// ドロップダウン展開中フラグ (展開中は定期描画をスキップして引っ掛かりを防止)
+	private final java.util.concurrent.atomic.AtomicBoolean isPopupVisible = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+	public boolean isAnyPopupVisible() {
+		return isPopupVisible.get();
+	}
+
+	/**
+	 * 不要な境界線再計算やフォーカス枠描画を排除した超軽量リストセルレンダラー。
+	 * X11 ソフトウェアレンダリング環境下でのドロップダウン展開・スクロール速度を飛躍的に高める。
+	 */
+	private static class LightweightListCellRenderer extends DefaultListCellRenderer {
+		private static final javax.swing.border.Border EMPTY_BORDER = BorderFactory.createEmptyBorder(2, 6, 2, 6);
+
+		@Override
+		public Component getListCellRendererComponent(JList list, Object value, int index,
+				boolean isSelected, boolean cellHasFocus) {
+			super.getListCellRendererComponent(list, value, index, isSelected, false);
+			setBorder(EMPTY_BORDER);
+			return this;
+		}
+
+		@Override public boolean isOpaque() { return true; }
+		@Override public void repaint() {}
+		@Override public void repaint(long tm, int x, int y, int width, int height) {}
+		@Override public void repaint(Rectangle r) {}
+		@Override public void revalidate() {}
+	}
+
+	private final LightweightListCellRenderer lightweightRenderer = new LightweightListCellRenderer();
+
 	private boolean isUpdatingUI = false;
 
 	public boolean isUpdatingUI() {
@@ -588,6 +619,9 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	public void selectCommandIo(CommandAction action, String ioName) {
 		JComboBox combo = inputIoComboBoxes.get(action);
 		if (combo != null && ioName != null) {
+			if (ioName.equals(combo.getSelectedItem())) {
+				return;
+			}
 			boolean prev = isUpdatingUI;
 			isUpdatingUI = true;
 			try {
@@ -601,6 +635,9 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	public void selectStatusIo(StatusOutputAction action, String ioName) {
 		JComboBox combo = outputIoComboBoxes.get(action);
 		if (combo != null && ioName != null) {
+			if (ioName.equals(combo.getSelectedItem())) {
+				return;
+			}
 			boolean prev = isUpdatingUI;
 			isUpdatingUI = true;
 			try {
@@ -614,6 +651,9 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	public void selectStatusCodeIo(StatusCodeOutputAction action, String ioName) {
 		JComboBox combo = codeIoComboBoxes.get(action);
 		if (combo != null && ioName != null) {
+			if (ioName.equals(combo.getSelectedItem())) {
+				return;
+			}
 			boolean prev = isUpdatingUI;
 			isUpdatingUI = true;
 			try {
@@ -628,10 +668,18 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		boolean prev = isUpdatingUI;
 		isUpdatingUI = true;
 		try {
-			if (busyIoComboBox != null && busy != null) busyIoComboBox.setSelectedItem(busy);
-			if (doneIoComboBox != null && done != null) doneIoComboBox.setSelectedItem(done);
-			if (errorIoComboBox != null && error != null) errorIoComboBox.setSelectedItem(error);
-			if (errorCodeIoComboBox != null && errCode != null) errorCodeIoComboBox.setSelectedItem(errCode);
+			if (busyIoComboBox != null && busy != null && !busy.equals(busyIoComboBox.getSelectedItem())) {
+				busyIoComboBox.setSelectedItem(busy);
+			}
+			if (doneIoComboBox != null && done != null && !done.equals(doneIoComboBox.getSelectedItem())) {
+				doneIoComboBox.setSelectedItem(done);
+			}
+			if (errorIoComboBox != null && error != null && !error.equals(errorIoComboBox.getSelectedItem())) {
+				errorIoComboBox.setSelectedItem(error);
+			}
+			if (errorCodeIoComboBox != null && errCode != null && !errCode.equals(errorCodeIoComboBox.getSelectedItem())) {
+				errorCodeIoComboBox.setSelectedItem(errCode);
+			}
 		} finally {
 			isUpdatingUI = prev;
 		}
@@ -710,9 +758,11 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	 */
 	private void optimizeComboBoxScroll(final JComboBox combo) {
 		combo.setMaximumRowCount(14);
+		combo.setRenderer(lightweightRenderer);
 		combo.addPopupMenuListener(new PopupMenuListener() {
 			@Override
 			public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+				isPopupVisible.set(true);
 				try {
 					Object ui = combo.getUI();
 					if (ui instanceof javax.swing.plaf.basic.BasicComboBoxUI) {
@@ -736,8 +786,14 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 					}
 				} catch (Exception ignored) {}
 			}
-			@Override public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
-			@Override public void popupMenuCanceled(PopupMenuEvent e) {}
+			@Override
+			public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+				isPopupVisible.set(false);
+			}
+			@Override
+			public void popupMenuCanceled(PopupMenuEvent e) {
+				isPopupVisible.set(false);
+			}
 		});
 	}
 

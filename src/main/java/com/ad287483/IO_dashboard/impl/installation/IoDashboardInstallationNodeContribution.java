@@ -13,6 +13,7 @@ import com.ur.urcap.api.domain.script.ScriptWriter;
 
 import javax.swing.*;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,6 +49,33 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	private ScheduledFuture<?> uiUpdateTask;
 
 	// UI最適化用キャッシュ
+	private static final List<String> STATIC_INPUT_OPTIONS;
+	private static final List<String> STATIC_OUTPUT_BOOL_OPTIONS;
+	private static final List<String> STATIC_OUTPUT_INT_OPTIONS;
+
+	static {
+		List<String> inList = new ArrayList<String>();
+		inList.add(IoConstants.UNASSIGNED);
+		for (int i = 0; i <= IoConstants.MAX_INPUT_BIT_INDEX; i++) {
+			inList.add(IoConstants.INPUT_BIT_PREFIX + i);
+		}
+		STATIC_INPUT_OPTIONS = Collections.unmodifiableList(inList);
+
+		List<String> outBoolList = new ArrayList<String>();
+		outBoolList.add(IoConstants.UNASSIGNED);
+		for (int i = 0; i <= IoConstants.MAX_OUTPUT_BIT_INDEX; i++) {
+			outBoolList.add(IoConstants.OUTPUT_BIT_PREFIX + i);
+		}
+		STATIC_OUTPUT_BOOL_OPTIONS = Collections.unmodifiableList(outBoolList);
+
+		List<String> outIntList = new ArrayList<String>();
+		outIntList.add(IoConstants.NOT_USED);
+		for (int i = 0; i <= IoConstants.MAX_OUTPUT_INT_INDEX; i++) {
+			outIntList.add(IoConstants.OUTPUT_INT_PREFIX + i);
+		}
+		STATIC_OUTPUT_INT_OPTIONS = Collections.unmodifiableList(outIntList);
+	}
+
 	private List<String> cachedInputOptions = null;
 	private List<String> cachedOutputBoolOptions = null;
 	private List<String> cachedOutputIntOptions = null;
@@ -277,6 +305,11 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	}
 
 	private void updateUI() {
+		// ポップアップ（ドロップダウン）展開中は画面更新をスキップし、描画負荷と操作干渉を完全に防止
+		if (view.isAnyPopupVisible()) {
+			return;
+		}
+
 		if (!monitorService.isEnabled()) {
 			view.setConnectionStatus(false, false, 0);
 		} else {
@@ -356,34 +389,72 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	}
 
 	public void onCommandIoSelected(CommandAction action, String ioName) {
+		IoCommandBinding old = monitorService.getCommandBinding(action);
+		if (old != null && ioName != null && ioName.equals(old.getIoName())) {
+			return;
+		}
 		model.set("cmd_" + action.name(), ioName);
 		monitorService.setCommandBinding(action, ioName, "");
 	}
 
-	public void onStatusIoSelected(StatusOutputAction action, String ioName) {
+	public void onStatusIoSelected(final StatusOutputAction action, final String ioName) {
+		IoStatusBinding old = feedbackService.getStatusBinding(action);
+		if (old != null && ioName != null && ioName.equals(old.getIoName())) {
+			return;
+		}
 		model.set("status_" + action.name(), ioName);
-		feedbackService.setStatusBinding(action, ioName);
-		monitorService.addLog("状態出力割付変更: " + action.getDisplayName() + " -> " + ioName);
+		// UIスレッドでのソケット通信ブロックを排除し、完全非同期でレジスタへ反映
+		asyncExecutor.submit(new Runnable() {
+			@Override
+			public void run() {
+				feedbackService.setStatusBinding(action, ioName);
+				monitorService.addLog("状態出力割付変更: " + action.getDisplayName() + " -> " + ioName);
+			}
+		});
 	}
 
-	public void onStatusCodeIoSelected(StatusCodeOutputAction action, String ioName) {
+	public void onStatusCodeIoSelected(final StatusCodeOutputAction action, final String ioName) {
+		IoStatusCodeBinding old = feedbackService.getCodeBinding(action);
+		if (old != null && ioName != null && ioName.equals(old.getIoName())) {
+			return;
+		}
 		model.set("code_" + action.name(), ioName);
-		feedbackService.setCodeBinding(action, ioName);
-		monitorService.addLog("コード出力割付変更: " + action.getDisplayName() + " -> " + ioName);
+		// UIスレッドでのソケット通信ブロックを排除し、完全非同期でレジスタへ反映
+		asyncExecutor.submit(new Runnable() {
+			@Override
+			public void run() {
+				feedbackService.setCodeBinding(action, ioName);
+				monitorService.addLog("コード出力割付変更: " + action.getDisplayName() + " -> " + ioName);
+			}
+		});
 	}
 
 	public void onHandshakeChanged() {
-		String busy = view.getBusyIo();
-		String done = view.getDoneIo();
-		String error = view.getErrorIo();
-		String errCode = view.getErrorCodeIo();
+		final String busy = view.getBusyIo();
+		final String done = view.getDoneIo();
+		final String error = view.getErrorIo();
+		final String errCode = view.getErrorCodeIo();
+
+		String curBusy = model.get(KEY_HANDSHAKE_BUSY, IoConstants.NOT_USED);
+		String curDone = model.get(KEY_HANDSHAKE_DONE, IoConstants.NOT_USED);
+		String curError = model.get(KEY_HANDSHAKE_ERROR, IoConstants.NOT_USED);
+		String curErrCode = model.get(KEY_HANDSHAKE_ERRCODE, IoConstants.NOT_USED);
+
+		if (busy.equals(curBusy) && done.equals(curDone) && error.equals(curError) && errCode.equals(curErrCode)) {
+			return;
+		}
 
 		model.set(KEY_HANDSHAKE_BUSY, busy);
 		model.set(KEY_HANDSHAKE_DONE, done);
 		model.set(KEY_HANDSHAKE_ERROR, error);
 		model.set(KEY_HANDSHAKE_ERRCODE, errCode);
 
-		monitorService.setHandshakeBindings(busy, done, error, errCode);
+		asyncExecutor.submit(new Runnable() {
+			@Override
+			public void run() {
+				monitorService.setHandshakeBindings(busy, done, error, errCode);
+			}
+		});
 	}
 
 	public void executeActionManually(CommandAction action) {
@@ -422,35 +493,14 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	// ------------------ IO 候補生成ヘルパー (ビットレジスタのみ) ------------------
 
 	private List<String> buildInputOptions() {
-		List<String> list = new ArrayList<String>();
-		list.add(IoConstants.UNASSIGNED);
-
-		// 汎用ブール入力レジスタのみ: bit 0 〜 64
-		for (int i = 0; i <= IoConstants.MAX_INPUT_BIT_INDEX; i++) {
-			list.add(IoConstants.INPUT_BIT_PREFIX + i);
-		}
-		return list;
+		return STATIC_INPUT_OPTIONS;
 	}
 
 	private List<String> buildOutputBoolOptions() {
-		List<String> list = new ArrayList<String>();
-		list.add(IoConstants.UNASSIGNED);
-
-		// 汎用ブール出力レジスタのみ: bit 0 〜 64
-		for (int i = 0; i <= IoConstants.MAX_OUTPUT_BIT_INDEX; i++) {
-			list.add(IoConstants.OUTPUT_BIT_PREFIX + i);
-		}
-		return list;
+		return STATIC_OUTPUT_BOOL_OPTIONS;
 	}
 
 	private List<String> buildOutputIntOptions() {
-		List<String> list = new ArrayList<String>();
-		list.add(IoConstants.NOT_USED);
-
-		// 汎用整数出力レジスタのみ: int 0 〜 47
-		for (int i = 0; i <= IoConstants.MAX_OUTPUT_INT_INDEX; i++) {
-			list.add(IoConstants.OUTPUT_INT_PREFIX + i);
-		}
-		return list;
+		return STATIC_OUTPUT_INT_OPTIONS;
 	}
 }
