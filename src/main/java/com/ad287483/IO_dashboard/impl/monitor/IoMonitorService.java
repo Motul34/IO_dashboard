@@ -82,7 +82,11 @@ public class IoMonitorService {
 					String defName = reg.getDefaultName() != null ? reg.getDefaultName().toLowerCase() : null;
 					if (reg.isInput()) {
 						if (name != null && !name.isEmpty()) booleanRegisterCache.put(name, reg);
-						if (defName != null && !defName.isEmpty()) booleanRegisterCache.put(defName, reg);
+						if (defName != null && !defName.isEmpty()) {
+							booleanRegisterCache.put(defName, reg);
+							String norm = defName.replace("[", "_").replace("]", "").trim();
+							booleanRegisterCache.put(norm, reg);
+						}
 					}
 				}
 			} catch (Throwable ignored) {}

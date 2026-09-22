@@ -9,11 +9,16 @@ import com.ur.urcap.api.contribution.installation.CreationContext;
 import com.ur.urcap.api.contribution.installation.InstallationAPIProvider;
 import com.ur.urcap.api.domain.data.DataModel;
 import com.ur.urcap.api.domain.io.IOModel;
+import com.ur.urcap.api.domain.io.Register;
+import com.ur.urcap.api.domain.io.BooleanRegister;
+import com.ur.urcap.api.domain.io.IntegerRegister;
 import com.ur.urcap.api.domain.script.ScriptWriter;
 
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -46,39 +51,117 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	private final ScheduledExecutorService uiScheduler;
 	private final ExecutorService asyncExecutor;
 	private final boolean ownsExecutors;
+	private final IOModel ioModel;
+
+	// 標準識別名 (例: input_bit_register_0) <-> 表示名 (例: 運転準備) の双方向マッピング
+	private final Map<String, String> canonicalToDisplayMap = new HashMap<String, String>();
+	private final Map<String, String> displayToCanonicalMap = new HashMap<String, String>();
 	private ScheduledFuture<?> uiUpdateTask;
 
 	// UI最適化用キャッシュ
-	private static final List<String> STATIC_INPUT_OPTIONS;
-	private static final List<String> STATIC_OUTPUT_BOOL_OPTIONS;
-	private static final List<String> STATIC_OUTPUT_INT_OPTIONS;
-
-	static {
-		List<String> inList = new ArrayList<String>();
-		inList.add(IoConstants.UNASSIGNED);
-		for (int i = 0; i <= IoConstants.MAX_INPUT_BIT_INDEX; i++) {
-			inList.add(IoConstants.INPUT_BIT_PREFIX + i);
-		}
-		STATIC_INPUT_OPTIONS = Collections.unmodifiableList(inList);
-
-		List<String> outBoolList = new ArrayList<String>();
-		outBoolList.add(IoConstants.UNASSIGNED);
-		for (int i = 0; i <= IoConstants.MAX_OUTPUT_BIT_INDEX; i++) {
-			outBoolList.add(IoConstants.OUTPUT_BIT_PREFIX + i);
-		}
-		STATIC_OUTPUT_BOOL_OPTIONS = Collections.unmodifiableList(outBoolList);
-
-		List<String> outIntList = new ArrayList<String>();
-		outIntList.add(IoConstants.NOT_USED);
-		for (int i = 0; i <= IoConstants.MAX_OUTPUT_INT_INDEX; i++) {
-			outIntList.add(IoConstants.OUTPUT_INT_PREFIX + i);
-		}
-		STATIC_OUTPUT_INT_OPTIONS = Collections.unmodifiableList(outIntList);
-	}
-
 	private List<String> cachedInputOptions = null;
 	private List<String> cachedOutputBoolOptions = null;
 	private List<String> cachedOutputIntOptions = null;
+
+	public String toCanonicalIoName(String displayName) {
+		if (displayName == null) return null;
+		String canonical = displayToCanonicalMap.get(displayName);
+		return canonical != null ? canonical : displayName;
+	}
+
+	public String toDisplayIoName(String canonicalName) {
+		if (canonicalName == null) return null;
+		String display = canonicalToDisplayMap.get(canonicalName);
+		return display != null ? display : canonicalName;
+	}
+
+	private String normalizeRegisterName(Register reg) {
+		if (reg == null) return null;
+		String defName = reg.getDefaultName();
+		if (defName == null || defName.isEmpty()) return null;
+		return defName.replace("[", "_").replace("]", "").trim();
+	}
+
+	/**
+	 * IOModel からレジスタのカスタム名を収集し、双方向マッピングテーブルを最新化する。
+	 * 変更されていないデフォルトのものは標準識別名をそのまま表示名とする。
+	 */
+	private void refreshNameMappings() {
+		canonicalToDisplayMap.clear();
+		displayToCanonicalMap.clear();
+
+		canonicalToDisplayMap.put(IoConstants.UNASSIGNED, IoConstants.UNASSIGNED);
+		displayToCanonicalMap.put(IoConstants.UNASSIGNED, IoConstants.UNASSIGNED);
+		canonicalToDisplayMap.put(IoConstants.NOT_USED, IoConstants.NOT_USED);
+		displayToCanonicalMap.put(IoConstants.NOT_USED, IoConstants.NOT_USED);
+
+		Map<String, String> rawCustomNames = new HashMap<String, String>();
+		if (ioModel != null) {
+			try {
+				for (BooleanRegister reg : ioModel.getIOs(BooleanRegister.class)) {
+					String norm = normalizeRegisterName(reg);
+					if (norm != null) {
+						String custom = reg.getName();
+						if (custom != null && !custom.trim().isEmpty() && !custom.equals(reg.getDefaultName()) && !custom.equals(norm)) {
+							rawCustomNames.put(norm, custom.trim());
+						}
+					}
+				}
+			} catch (Throwable ignored) {}
+
+			try {
+				for (IntegerRegister reg : ioModel.getIOs(IntegerRegister.class)) {
+					String norm = normalizeRegisterName(reg);
+					if (norm != null) {
+						String custom = reg.getName();
+						if (custom != null && !custom.trim().isEmpty() && !custom.equals(reg.getDefaultName()) && !custom.equals(norm)) {
+							rawCustomNames.put(norm, custom.trim());
+						}
+					}
+				}
+			} catch (Throwable ignored) {}
+		}
+
+		Map<String, String> tempCanonicalToDisplay = new HashMap<String, String>();
+		Map<String, Integer> displayUsageCount = new HashMap<String, Integer>();
+
+		for (int i = 0; i <= IoConstants.MAX_INPUT_BIT_INDEX; i++) {
+			String canon = IoConstants.INPUT_BIT_PREFIX + i;
+			String custom = rawCustomNames.get(canon);
+			String disp = (custom != null) ? custom : canon;
+			tempCanonicalToDisplay.put(canon, disp);
+			Integer c = displayUsageCount.get(disp);
+			displayUsageCount.put(disp, c == null ? 1 : c + 1);
+		}
+
+		for (int i = 0; i <= IoConstants.MAX_OUTPUT_BIT_INDEX; i++) {
+			String canon = IoConstants.OUTPUT_BIT_PREFIX + i;
+			String custom = rawCustomNames.get(canon);
+			String disp = (custom != null) ? custom : canon;
+			tempCanonicalToDisplay.put(canon, disp);
+			Integer c = displayUsageCount.get(disp);
+			displayUsageCount.put(disp, c == null ? 1 : c + 1);
+		}
+
+		for (int i = 0; i <= IoConstants.MAX_OUTPUT_INT_INDEX; i++) {
+			String canon = IoConstants.OUTPUT_INT_PREFIX + i;
+			String custom = rawCustomNames.get(canon);
+			String disp = (custom != null) ? custom : canon;
+			tempCanonicalToDisplay.put(canon, disp);
+			Integer c = displayUsageCount.get(disp);
+			displayUsageCount.put(disp, c == null ? 1 : c + 1);
+		}
+
+		for (Map.Entry<String, String> entry : tempCanonicalToDisplay.entrySet()) {
+			String canon = entry.getKey();
+			String disp = entry.getValue();
+			if (displayUsageCount.get(disp) > 1 && !disp.equals(canon)) {
+				disp = disp + " (" + canon + ")";
+			}
+			canonicalToDisplayMap.put(canon, disp);
+			displayToCanonicalMap.put(disp, canon);
+		}
+	}
 	private long lastCheckedLogSeq = -1;
 	private final AtomicBoolean isConnecting = new AtomicBoolean(false);
 
@@ -130,8 +213,9 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		this.asyncExecutor = asyncExecutor;
 		this.ownsExecutors = ownsExecutors;
 
-		// IOModel を各サービスに設定
+		// IOModel を保持し各サービスに設定
 		IOModel ioModel = apiProvider.getInstallationAPI().getIOModel();
+		this.ioModel = ioModel;
 		this.monitorService.setIoModel(ioModel);
 		this.feedbackService.setIoModel(ioModel);
 
@@ -213,7 +297,10 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	public void openView() {
 		view.setUpdatingUI(true);
 		try {
-			// 1. 利用可能な IO リストを生成して差分がある場合のみ View のコンボボックスに供給
+			// 0. IOModel からカスタム名を収集しマッピングを最新化
+			refreshNameMappings();
+
+			// 1. 表示名リストを生成して差分がある場合のみ View のコンボボックスに供給
 			List<String> inputOptions = buildInputOptions();
 			List<String> outputBoolOptions = buildOutputBoolOptions();
 			List<String> outputIntOptions = buildOutputIntOptions();
@@ -234,29 +321,29 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 				feedbackService.refreshDigitalIoCache();
 			}
 
-			// 2. 現在の保存値を View に反映
+			// 2. 現在の保存値を表示名に変換して View に反映
 			view.setEnabledCheckbox(monitorService.isEnabled());
 
 			for (CommandAction action : CommandAction.values()) {
 				IoCommandBinding b = monitorService.getCommandBinding(action);
-				if (b != null) view.selectCommandIo(action, b.getIoName());
+				if (b != null) view.selectCommandIo(action, toDisplayIoName(b.getIoName()));
 			}
 
 			for (StatusOutputAction action : StatusOutputAction.values()) {
 				IoStatusBinding b = feedbackService.getStatusBinding(action);
-				if (b != null) view.selectStatusIo(action, b.getIoName());
+				if (b != null) view.selectStatusIo(action, toDisplayIoName(b.getIoName()));
 			}
 
 			for (StatusCodeOutputAction action : StatusCodeOutputAction.values()) {
 				IoStatusCodeBinding b = feedbackService.getCodeBinding(action);
-				if (b != null) view.selectStatusCodeIo(action, b.getIoName());
+				if (b != null) view.selectStatusCodeIo(action, toDisplayIoName(b.getIoName()));
 			}
 
 			view.selectHandshakeIos(
-					model.get(KEY_HANDSHAKE_BUSY, IoConstants.NOT_USED),
-					model.get(KEY_HANDSHAKE_DONE, IoConstants.NOT_USED),
-					model.get(KEY_HANDSHAKE_ERROR, IoConstants.NOT_USED),
-					model.get(KEY_HANDSHAKE_ERRCODE, IoConstants.NOT_USED)
+					toDisplayIoName(model.get(KEY_HANDSHAKE_BUSY, IoConstants.NOT_USED)),
+					toDisplayIoName(model.get(KEY_HANDSHAKE_DONE, IoConstants.NOT_USED)),
+					toDisplayIoName(model.get(KEY_HANDSHAKE_ERROR, IoConstants.NOT_USED)),
+					toDisplayIoName(model.get(KEY_HANDSHAKE_ERRCODE, IoConstants.NOT_USED))
 			);
 		} finally {
 			view.setUpdatingUI(false);
@@ -388,52 +475,55 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		});
 	}
 
-	public void onCommandIoSelected(CommandAction action, String ioName) {
+	public void onCommandIoSelected(CommandAction action, String selectedDisplayName) {
+		final String canonicalIo = toCanonicalIoName(selectedDisplayName);
 		IoCommandBinding old = monitorService.getCommandBinding(action);
-		if (old != null && ioName != null && ioName.equals(old.getIoName())) {
+		if (old != null && canonicalIo != null && canonicalIo.equals(old.getIoName())) {
 			return;
 		}
-		model.set("cmd_" + action.name(), ioName);
-		monitorService.setCommandBinding(action, ioName, "");
+		model.set("cmd_" + action.name(), canonicalIo);
+		monitorService.setCommandBinding(action, canonicalIo, "");
 	}
 
-	public void onStatusIoSelected(final StatusOutputAction action, final String ioName) {
+	public void onStatusIoSelected(final StatusOutputAction action, String selectedDisplayName) {
+		final String canonicalIo = toCanonicalIoName(selectedDisplayName);
 		IoStatusBinding old = feedbackService.getStatusBinding(action);
-		if (old != null && ioName != null && ioName.equals(old.getIoName())) {
+		if (old != null && canonicalIo != null && canonicalIo.equals(old.getIoName())) {
 			return;
 		}
-		model.set("status_" + action.name(), ioName);
+		model.set("status_" + action.name(), canonicalIo);
 		// UIスレッドでのソケット通信ブロックを排除し、完全非同期でレジスタへ反映
 		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
-				feedbackService.setStatusBinding(action, ioName);
-				monitorService.addLog("状態出力割付変更: " + action.getDisplayName() + " -> " + ioName);
+				feedbackService.setStatusBinding(action, canonicalIo);
+				monitorService.addLog("状態出力割付変更: " + action.getDisplayName() + " -> " + canonicalIo);
 			}
 		});
 	}
 
-	public void onStatusCodeIoSelected(final StatusCodeOutputAction action, final String ioName) {
+	public void onStatusCodeIoSelected(final StatusCodeOutputAction action, String selectedDisplayName) {
+		final String canonicalIo = toCanonicalIoName(selectedDisplayName);
 		IoStatusCodeBinding old = feedbackService.getCodeBinding(action);
-		if (old != null && ioName != null && ioName.equals(old.getIoName())) {
+		if (old != null && canonicalIo != null && canonicalIo.equals(old.getIoName())) {
 			return;
 		}
-		model.set("code_" + action.name(), ioName);
+		model.set("code_" + action.name(), canonicalIo);
 		// UIスレッドでのソケット通信ブロックを排除し、完全非同期でレジスタへ反映
 		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
-				feedbackService.setCodeBinding(action, ioName);
-				monitorService.addLog("コード出力割付変更: " + action.getDisplayName() + " -> " + ioName);
+				feedbackService.setCodeBinding(action, canonicalIo);
+				monitorService.addLog("コード出力割付変更: " + action.getDisplayName() + " -> " + canonicalIo);
 			}
 		});
 	}
 
 	public void onHandshakeChanged() {
-		final String busy = view.getBusyIo();
-		final String done = view.getDoneIo();
-		final String error = view.getErrorIo();
-		final String errCode = view.getErrorCodeIo();
+		final String busy = toCanonicalIoName(view.getBusyIo());
+		final String done = toCanonicalIoName(view.getDoneIo());
+		final String error = toCanonicalIoName(view.getErrorIo());
+		final String errCode = toCanonicalIoName(view.getErrorCodeIo());
 
 		String curBusy = model.get(KEY_HANDSHAKE_BUSY, IoConstants.NOT_USED);
 		String curDone = model.get(KEY_HANDSHAKE_DONE, IoConstants.NOT_USED);
@@ -493,14 +583,32 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	// ------------------ IO 候補生成ヘルパー (ビットレジスタのみ) ------------------
 
 	private List<String> buildInputOptions() {
-		return STATIC_INPUT_OPTIONS;
+		List<String> list = new ArrayList<String>();
+		list.add(IoConstants.UNASSIGNED);
+		for (int i = 0; i <= IoConstants.MAX_INPUT_BIT_INDEX; i++) {
+			String canon = IoConstants.INPUT_BIT_PREFIX + i;
+			list.add(toDisplayIoName(canon));
+		}
+		return list;
 	}
 
 	private List<String> buildOutputBoolOptions() {
-		return STATIC_OUTPUT_BOOL_OPTIONS;
+		List<String> list = new ArrayList<String>();
+		list.add(IoConstants.UNASSIGNED);
+		for (int i = 0; i <= IoConstants.MAX_OUTPUT_BIT_INDEX; i++) {
+			String canon = IoConstants.OUTPUT_BIT_PREFIX + i;
+			list.add(toDisplayIoName(canon));
+		}
+		return list;
 	}
 
 	private List<String> buildOutputIntOptions() {
-		return STATIC_OUTPUT_INT_OPTIONS;
+		List<String> list = new ArrayList<String>();
+		list.add(IoConstants.NOT_USED);
+		for (int i = 0; i <= IoConstants.MAX_OUTPUT_INT_INDEX; i++) {
+			String canon = IoConstants.OUTPUT_INT_PREFIX + i;
+			list.add(toDisplayIoName(canon));
+		}
+		return list;
 	}
 }
