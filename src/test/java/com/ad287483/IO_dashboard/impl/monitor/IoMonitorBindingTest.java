@@ -19,9 +19,9 @@ public class IoMonitorBindingTest {
 		IoCommandBinding b2Str = new IoCommandBinding(CommandAction.STOP, "(未割り当て)", "");
 		assertFalse(b2Str.isAssigned());
 
-		IoCommandBinding b3 = new IoCommandBinding(CommandAction.LOAD_PROGRAM, "input_bit_register_10", "/programs/test.urp");
+		IoCommandBinding b3 = new IoCommandBinding(CommandAction.PAUSE, "input_bit_register_10", "");
 		assertTrue(b3.isAssigned());
-		assertEquals("/programs/test.urp", b3.getParameter());
+		assertEquals("input_bit_register_10", b3.getIoName());
 	}
 
 	@Test

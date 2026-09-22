@@ -343,21 +343,6 @@ public class IoMonitorService {
 					if (!success) errCode = 3;
 					break;
 
-				case LOAD_PROGRAM:
-					String progPath = binding.getParameter();
-					if (progPath == null || progPath.trim().isEmpty()) {
-						response = "Error: Program path is empty";
-						errCode = 1;
-						success = false;
-					} else {
-						response = dashboardClient.sendCommand("load " + progPath.trim());
-						success = response.toLowerCase().contains("loading program");
-						if (!success) {
-							errCode = response.toLowerCase().contains("file not found") ? 1 : 2;
-						}
-					}
-					break;
-
 				case UNLOCK_PROTECTIVE_STOP:
 					response = dashboardClient.sendCommand("unlock protective stop");
 					dashboardClient.sendCommand("close safety popup");

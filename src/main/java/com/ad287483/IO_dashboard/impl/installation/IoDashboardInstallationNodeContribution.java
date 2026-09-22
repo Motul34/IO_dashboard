@@ -28,7 +28,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class IoDashboardInstallationNodeContribution implements InstallationNodeContribution {
 
 	private static final String KEY_ENABLED = "io_dash_enabled";
-	private static final String KEY_PROGRAM_PATH = "io_dash_program_path";
 	private static final String KEY_HANDSHAKE_BUSY = "io_dash_hs_busy";
 	private static final String KEY_HANDSHAKE_DONE = "io_dash_hs_done";
 	private static final String KEY_HANDSHAKE_ERROR = "io_dash_hs_error";
@@ -159,11 +158,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		// 入力コマンドバインディングの復元
 		for (CommandAction action : CommandAction.values()) {
 			String savedIo = model.get("cmd_" + action.name(), IoConstants.UNASSIGNED);
-			String param = "";
-			if (action == CommandAction.LOAD_PROGRAM) {
-				param = model.get(KEY_PROGRAM_PATH, "/programs/default.urp");
-			}
-			monitorService.setCommandBinding(action, savedIo, param);
+			monitorService.setCommandBinding(action, savedIo, "");
 		}
 
 		// ブール状態出力バインディングの復元
@@ -213,7 +208,6 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 			// 2. 現在の保存値を View に反映
 			view.setEnabledCheckbox(monitorService.isEnabled());
-			view.setProgramPath(model.get(KEY_PROGRAM_PATH, "/programs/default.urp"));
 
 			for (CommandAction action : CommandAction.values()) {
 				IoCommandBinding b = monitorService.getCommandBinding(action);
@@ -363,17 +357,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	public void onCommandIoSelected(CommandAction action, String ioName) {
 		model.set("cmd_" + action.name(), ioName);
-		String param = action == CommandAction.LOAD_PROGRAM ? view.getProgramPath() : "";
-		monitorService.setCommandBinding(action, ioName, param);
-	}
-
-	public void onProgramPathChanged(String path) {
-		model.set(KEY_PROGRAM_PATH, path);
-		IoCommandBinding b = monitorService.getCommandBinding(CommandAction.LOAD_PROGRAM);
-		if (b != null) {
-			b.setParameter(path);
-		}
-		monitorService.addLog("ロード対象プログラムパスを更新: " + path);
+		monitorService.setCommandBinding(action, ioName, "");
 	}
 
 	public void onStatusIoSelected(StatusOutputAction action, String ioName) {
@@ -405,7 +389,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	public void executeActionManually(CommandAction action) {
 		IoCommandBinding b = monitorService.getCommandBinding(action);
 		if (b == null) {
-			b = new IoCommandBinding(action, "手動テスト", view.getProgramPath());
+			b = new IoCommandBinding(action, "手動テスト", "");
 		}
 		final IoCommandBinding toExec = b;
 		asyncExecutor.submit(new Runnable() {

@@ -11,7 +11,6 @@ public enum CommandAction {
 	PLAY("プログラム再生 (Play)", "play"),
 	STOP("プログラム停止 (Stop)", "stop"),
 	PAUSE("プログラム一時停止 (Pause)", "pause"),
-	LOAD_PROGRAM("プログラムロード (Load Program)", "load <program>"),
 	UNLOCK_PROTECTIVE_STOP("保護停止解除 & ポップアップ消去", "unlock protective stop / close popup"),
 	CLOSE_POPUP("ポップアップ消去 (Close Popup)", "close popup"),
 	RESTART_SAFETY("セーフティリスタート (Restart Safety)", "restart safety");

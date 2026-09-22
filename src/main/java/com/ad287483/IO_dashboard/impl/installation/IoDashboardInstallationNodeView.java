@@ -50,7 +50,6 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	private final Map<CommandAction, JComboBox> inputIoComboBoxes = new HashMap<CommandAction, JComboBox>();
 	private final Map<CommandAction, JLabel> inputStatusLabels = new HashMap<CommandAction, JLabel>();
 	private final Map<CommandAction, JButton> testActionButtons = new HashMap<CommandAction, JButton>();
-	private JTextField programPathField;
 
 	// 出力状態マッピング用コンポーネント (ブール)
 	private final Map<StatusOutputAction, JComboBox> outputIoComboBoxes = new HashMap<StatusOutputAction, JComboBox>();
@@ -283,38 +282,6 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			panel.add(row);
 			panel.add(Box.createRigidArea(new Dimension(0, 4)));
 
-			// プログラムロード専用のパス入力行
-			if (action == CommandAction.LOAD_PROGRAM) {
-				Box pathRow = Box.createHorizontalBox();
-				pathRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-				JLabel pathPrompt = new JLabel("  └ 対象パス: ");
-				pathPrompt.setFont(new Font("SansSerif", Font.ITALIC, 11));
-				pathPrompt.setPreferredSize(new Dimension(90, 24));
-				pathRow.add(pathPrompt);
-
-				programPathField = new JTextField("/programs/default.urp");
-				programPathField.setFont(new Font("SansSerif", Font.PLAIN, 11));
-				programPathField.setPreferredSize(new Dimension(280, 24));
-				programPathField.setMaximumSize(new Dimension(280, 24));
-				pathRow.add(programPathField);
-				pathRow.add(Box.createRigidArea(new Dimension(6, 0)));
-
-				JButton savePathBtn = new JButton("保存");
-				savePathBtn.setFont(new Font("SansSerif", Font.PLAIN, 11));
-				savePathBtn.setPreferredSize(new Dimension(60, 24));
-				savePathBtn.setFocusPainted(false);
-				savePathBtn.addActionListener(new ActionListener() {
-					@Override
-					public void actionPerformed(ActionEvent e) {
-						contribution.onProgramPathChanged(programPathField.getText());
-					}
-				});
-				pathRow.add(savePathBtn);
-				pathRow.add(Box.createHorizontalGlue());
-
-				panel.add(pathRow);
-				panel.add(Box.createRigidArea(new Dimension(0, 4)));
-			}
 		}
 
 		return panel;
@@ -655,16 +622,6 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 				isUpdatingUI = prev;
 			}
 		}
-	}
-
-	public void setProgramPath(String path) {
-		if (programPathField != null && path != null) {
-			programPathField.setText(path);
-		}
-	}
-
-	public String getProgramPath() {
-		return programPathField != null ? programPathField.getText() : "";
 	}
 
 	public void selectHandshakeIos(String busy, String done, String error, String errCode) {

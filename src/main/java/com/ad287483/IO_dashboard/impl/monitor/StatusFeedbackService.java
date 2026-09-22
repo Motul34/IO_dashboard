@@ -91,9 +91,17 @@ public class StatusFeedbackService {
 			writeBooleanOutput(oldBinding.getIoName(), false);
 			lastWrittenBoolValues.remove(oldBinding.getIoName());
 		}
-		statusBindings.put(action, new IoStatusBinding(action, ioName));
+		IoStatusBinding newBinding = new IoStatusBinding(action, ioName);
+		statusBindings.put(action, newBinding);
 		if (ioName != null) {
 			lastWrittenBoolValues.remove(ioName);
+		}
+		// 割付変更時に即座に現在値を反映
+		if (newBinding.isAssigned() && currentStatus != null) {
+			boolean curVal = action.evaluate(currentStatus);
+			if (writeBooleanOutput(ioName, curVal)) {
+				lastWrittenBoolValues.put(ioName, curVal);
+			}
 		}
 	}
 
@@ -107,9 +115,18 @@ public class StatusFeedbackService {
 			writeIntegerOutput(oldBinding.getIoName(), 0);
 			lastWrittenIntValues.remove(oldBinding.getIoName());
 		}
-		codeBindings.put(action, new IoStatusCodeBinding(action, ioName));
+		IoStatusCodeBinding newBinding = new IoStatusCodeBinding(action, ioName);
+		codeBindings.put(action, newBinding);
 		if (ioName != null) {
 			lastWrittenIntValues.remove(ioName);
+		}
+		// 割付変更時に即座に現在値を反映
+		if (newBinding.isAssigned() && currentStatus != null) {
+			int lastErr = monitorService != null ? monitorService.getLastErrorCode() : 0;
+			int curVal = action.evaluate(currentStatus, lastErr);
+			if (writeIntegerOutput(ioName, curVal)) {
+				lastWrittenIntValues.put(ioName, curVal);
+			}
 		}
 	}
 
@@ -256,6 +273,9 @@ public class StatusFeedbackService {
 				needRemote, needRunning, needMode, needSafety, needProgState, currentStatus);
 		this.currentStatus = status;
 
+		// 10サイクル(5秒)ごとに全割り当てレジスタを強制同期（初期化タイミングやパケット欠落への耐性強化）
+		boolean forceSync = (pollCycleCount % 10 == 0);
+
 		// 2. ブール状態出力の更新 (常時追従)
 		for (IoStatusBinding binding : statusBindings.values()) {
 			if (!binding.isAssigned()) {
@@ -266,9 +286,9 @@ public class StatusFeedbackService {
 			String ioName = binding.getIoName();
 			Boolean lastVal = lastWrittenBoolValues.get(ioName);
 
-			// 初回または値が変化した場合に書き込み
-			if (lastVal == null || lastVal.booleanValue() != currentValue) {
-				boolean ok = writeBooleanOutput(ioName, currentValue);
+			// 初回、値が変化した場合、または定期的同期周期に書き込み
+			if (forceSync || lastVal == null || lastVal.booleanValue() != currentValue) {
+				boolean ok = writeBooleanOutput(ioName, currentValue, !forceSync);
 				if (ok) {
 					lastWrittenBoolValues.put(ioName, currentValue ? Boolean.TRUE : Boolean.FALSE);
 				}
@@ -286,8 +306,8 @@ public class StatusFeedbackService {
 			String ioName = binding.getIoName();
 			Integer lastVal = lastWrittenIntValues.get(ioName);
 
-			if (lastVal == null || lastVal.intValue() != currentVal) {
-				boolean ok = writeIntegerOutput(ioName, currentVal);
+			if (forceSync || lastVal == null || lastVal.intValue() != currentVal) {
+				boolean ok = writeIntegerOutput(ioName, currentVal, !forceSync);
 				if (ok) {
 					lastWrittenIntValues.put(ioName, currentVal);
 				}
@@ -299,15 +319,19 @@ public class StatusFeedbackService {
 	 * ブール出力先（汎用ブール出力レジスタまたはデジタル出力）へ書き込む。
 	 */
 	public boolean writeBooleanOutput(String ioName, boolean value) {
+		return writeBooleanOutput(ioName, value, true);
+	}
+
+	public boolean writeBooleanOutput(String ioName, boolean value, boolean logOutput) {
 		if (ioName == null || ioName.trim().isEmpty() || IoConstants.UNASSIGNED.equals(ioName)) {
 			return false;
 		}
 
 		boolean result = false;
 		// 汎用ブール出力レジスタ (例: output_bit_register_64)
-		if (ioName.startsWith("output_bit_register_")) {
+		if (ioName.startsWith(IoConstants.OUTPUT_BIT_PREFIX)) {
 			try {
-				int address = Integer.parseInt(ioName.substring("output_bit_register_".length()).trim());
+				int address = Integer.parseInt(ioName.substring(IoConstants.OUTPUT_BIT_PREFIX.length()).trim());
 				result = primaryClient.writeOutputBooleanRegister(address, value);
 			} catch (NumberFormatException ignored) {}
 		} else {
@@ -321,7 +345,7 @@ public class StatusFeedbackService {
 			}
 		}
 
-		if (monitorService != null) {
+		if (logOutput && monitorService != null) {
 			monitorService.addLog("Bit出力: " + ioName + " = " + (value ? "1(ON)" : "0(OFF)") + (result ? " [成功]" : " [失敗/未接続]"));
 		}
 		return result;
@@ -331,19 +355,23 @@ public class StatusFeedbackService {
 	 * 整数出力先（汎用整数出力レジスタ）へ書き込む。
 	 */
 	public boolean writeIntegerOutput(String ioName, int value) {
+		return writeIntegerOutput(ioName, value, true);
+	}
+
+	public boolean writeIntegerOutput(String ioName, int value, boolean logOutput) {
 		if (ioName == null || ioName.trim().isEmpty() || IoConstants.NOT_USED.equals(ioName)) {
 			return false;
 		}
 
 		boolean result = false;
-		if (ioName.startsWith("output_int_register_")) {
+		if (ioName.startsWith(IoConstants.OUTPUT_INT_PREFIX)) {
 			try {
-				int address = Integer.parseInt(ioName.substring("output_int_register_".length()).trim());
+				int address = Integer.parseInt(ioName.substring(IoConstants.OUTPUT_INT_PREFIX.length()).trim());
 				result = primaryClient.writeOutputIntegerRegister(address, value);
 			} catch (NumberFormatException ignored) {}
 		}
 
-		if (monitorService != null) {
+		if (logOutput && monitorService != null) {
 			monitorService.addLog("Int出力: " + ioName + " = " + value + (result ? " [成功]" : " [失敗/未接続]"));
 		}
 		return result;
