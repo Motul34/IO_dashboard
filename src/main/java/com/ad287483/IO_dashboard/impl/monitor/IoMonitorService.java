@@ -2,6 +2,7 @@ package com.ad287483.IO_dashboard.impl.monitor;
 
 import com.ad287483.IO_dashboard.impl.client.DashboardClient;
 import com.ad287483.IO_dashboard.impl.client.PrimaryInterfaceClient;
+import com.ur.urcap.api.domain.io.BooleanRegister;
 import com.ur.urcap.api.domain.io.DigitalIO;
 import com.ur.urcap.api.domain.io.IO;
 import com.ur.urcap.api.domain.io.IOModel;
@@ -32,6 +33,7 @@ public class IoMonitorService {
 	private IOModel ioModel;
 	private final Map<String, DigitalIO> digitalInputCache = new ConcurrentHashMap<String, DigitalIO>();
 	private final Map<String, DigitalIO> digitalOutputCache = new ConcurrentHashMap<String, DigitalIO>();
+	private final Map<String, BooleanRegister> booleanRegisterCache = new ConcurrentHashMap<String, BooleanRegister>();
 
 	private boolean enabled = true;
 	private final Map<CommandAction, IoCommandBinding> commandBindings = new ConcurrentHashMap<CommandAction, IoCommandBinding>();
@@ -61,6 +63,7 @@ public class IoMonitorService {
 	public void refreshIoCache() {
 		digitalInputCache.clear();
 		digitalOutputCache.clear();
+		booleanRegisterCache.clear();
 		if (ioModel != null) {
 			for (DigitalIO dio : ioModel.getIOs(DigitalIO.class)) {
 				String name = dio.getName() != null ? dio.getName().toLowerCase() : null;
@@ -73,6 +76,16 @@ public class IoMonitorService {
 					if (defName != null && !defName.isEmpty()) digitalOutputCache.put(defName, dio);
 				}
 			}
+			try {
+				for (BooleanRegister reg : ioModel.getIOs(BooleanRegister.class)) {
+					String name = reg.getName() != null ? reg.getName().toLowerCase() : null;
+					String defName = reg.getDefaultName() != null ? reg.getDefaultName().toLowerCase() : null;
+					if (reg.isInput()) {
+						if (name != null && !name.isEmpty()) booleanRegisterCache.put(name, reg);
+						if (defName != null && !defName.isEmpty()) booleanRegisterCache.put(defName, reg);
+					}
+				}
+			} catch (Throwable ignored) {}
 		}
 	}
 
@@ -229,7 +242,7 @@ public class IoMonitorService {
 	 * キャッシュから O(1) で即時取得し、高負荷な全件探索を排除。
 	 */
 	public boolean readIoValue(String ioName) {
-		if (ioName == null || ioName.trim().isEmpty()) {
+		if (ioName == null || ioName.trim().isEmpty() || IoConstants.UNASSIGNED.equals(ioName)) {
 			return false;
 		}
 
@@ -240,6 +253,16 @@ public class IoMonitorService {
 		if (dio != null) {
 			return dio.getValue();
 		}
+
+		BooleanRegister reg = booleanRegisterCache.get(ioName);
+		if (reg == null) {
+			reg = booleanRegisterCache.get(ioName.toLowerCase());
+		}
+		if (reg != null) {
+			String valStr = reg.getValueStr();
+			return "true".equalsIgnoreCase(valStr) || "1".equals(valStr);
+		}
+
 		return false;
 	}
 
@@ -392,7 +415,7 @@ public class IoMonitorService {
 	}
 
 	private void setHandshakeOutput(String ioName, boolean value) {
-		if (ioName == null || ioName.trim().isEmpty() || "(使用しない)".equals(ioName)) {
+		if (ioName == null || ioName.trim().isEmpty() || IoConstants.NOT_USED.equals(ioName)) {
 			return;
 		}
 
@@ -413,7 +436,7 @@ public class IoMonitorService {
 	}
 
 	private void updateErrorCodeOutput(int code) {
-		if (errorCodeIoName == null || errorCodeIoName.trim().isEmpty() || "(使用しない)".equals(errorCodeIoName)) {
+		if (errorCodeIoName == null || errorCodeIoName.trim().isEmpty() || IoConstants.NOT_USED.equals(errorCodeIoName)) {
 			return;
 		}
 		if (errorCodeIoName.startsWith("output_int_register_")) {

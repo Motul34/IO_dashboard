@@ -29,6 +29,6 @@ public class IoStatusCodeBinding implements Serializable {
 	}
 
 	public boolean isAssigned() {
-		return ioName != null && !ioName.trim().isEmpty() && !"(使用しない)".equals(ioName);
+		return ioName != null && !ioName.trim().isEmpty() && !IoConstants.NOT_USED.equals(ioName);
 	}
 }

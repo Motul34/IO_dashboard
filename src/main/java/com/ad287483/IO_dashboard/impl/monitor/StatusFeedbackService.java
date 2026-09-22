@@ -232,7 +232,7 @@ public class StatusFeedbackService {
 		// 画面表示（② 出力状態タブ）と実際の出力の整合性を保つため常時全状態を取得
 		pollCycleCount++;
 
-		// ??????????????????
+		// 割り当て状況から必要な状態項目を判定
 		boolean needRemote = isActionAssigned(StatusOutputAction.IS_IN_REMOTE_CONTROL);
 		boolean needRunning = isActionAssigned(StatusOutputAction.IS_PROGRAM_RUNNING);
 		boolean needMode = isActionAssigned(StatusOutputAction.IS_ROBOT_POWER_ON)
@@ -251,7 +251,7 @@ public class StatusFeedbackService {
 			needProgState = true;
 		}
 
-		// 1. Dashboard Server ?????????????? (??????)
+		// 1. Dashboard Server から最新のロボット状態を取得 (最適化クエリ)
 		RobotStatus status = dashboardClient.queryRobotStatusOptimized(
 				needRemote, needRunning, needMode, needSafety, needProgState, currentStatus);
 		this.currentStatus = status;
@@ -299,7 +299,7 @@ public class StatusFeedbackService {
 	 * ブール出力先（汎用ブール出力レジスタまたはデジタル出力）へ書き込む。
 	 */
 	public boolean writeBooleanOutput(String ioName, boolean value) {
-		if (ioName == null || ioName.trim().isEmpty() || "(未割り当て)".equals(ioName)) {
+		if (ioName == null || ioName.trim().isEmpty() || IoConstants.UNASSIGNED.equals(ioName)) {
 			return false;
 		}
 
@@ -331,7 +331,7 @@ public class StatusFeedbackService {
 	 * 整数出力先（汎用整数出力レジスタ）へ書き込む。
 	 */
 	public boolean writeIntegerOutput(String ioName, int value) {
-		if (ioName == null || ioName.trim().isEmpty() || "(使用しない)".equals(ioName)) {
+		if (ioName == null || ioName.trim().isEmpty() || IoConstants.NOT_USED.equals(ioName)) {
 			return false;
 		}
 

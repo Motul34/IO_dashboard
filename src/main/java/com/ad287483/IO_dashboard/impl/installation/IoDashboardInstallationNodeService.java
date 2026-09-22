@@ -19,8 +19,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
- * PolyScope ? IO Dashboard ? Installation Node ???????????????
- * ???????????????????????????????????
+ * PolyScope に IO Dashboard の Installation Node を提供するサービスファクトリ。
+ * スレッドプールを一元管理し、タブ遷移等に伴うリソースリークを防止する。
  */
 public class IoDashboardInstallationNodeService implements SwingInstallationNodeService<IoDashboardInstallationNodeContribution, IoDashboardInstallationNodeView> {
 
@@ -29,7 +29,7 @@ public class IoDashboardInstallationNodeService implements SwingInstallationNode
 	private final IoMonitorService monitorService = new IoMonitorService(dashboardClient, primaryClient);
 	private final StatusFeedbackService feedbackService = new StatusFeedbackService(dashboardClient, primaryClient, monitorService);
 
-	// ??????????????????????
+	// シングルトンとして一元管理するスレッドプール
 	private final ScheduledExecutorService uiScheduler = Executors.newSingleThreadScheduledExecutor();
 	private final ExecutorService asyncExecutor = Executors.newCachedThreadPool();
 

@@ -8,13 +8,10 @@ import com.ur.urcap.api.contribution.InstallationNodeContribution;
 import com.ur.urcap.api.contribution.installation.CreationContext;
 import com.ur.urcap.api.contribution.installation.InstallationAPIProvider;
 import com.ur.urcap.api.domain.data.DataModel;
-import com.ur.urcap.api.domain.io.DigitalIO;
-import com.ur.urcap.api.domain.io.IO;
 import com.ur.urcap.api.domain.io.IOModel;
 import com.ur.urcap.api.domain.script.ScriptWriter;
 
 import javax.swing.*;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -25,8 +22,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Installation Node ??????DataModel ?????????????? UI ??????????????
- * ??????????????????IO?????????????????????????????
+ * Installation Node のロジック、DataModel 永続化、ライフサイクルおよび UI 更新を統括するコントローラ。
+ * スレッドプールの一元化、画面遷移時のIOキャッシュ、ログ更新スキップにより高パフォーマンスを実現。
  */
 public class IoDashboardInstallationNodeContribution implements InstallationNodeContribution {
 
@@ -51,7 +48,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	private final boolean ownsExecutors;
 	private ScheduledFuture<?> uiUpdateTask;
 
-	// UI?????????
+	// UI最適化用キャッシュ
 	private List<String> cachedInputOptions = null;
 	private List<String> cachedOutputBoolOptions = null;
 	private List<String> cachedOutputIntOptions = null;
@@ -106,19 +103,19 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		this.asyncExecutor = asyncExecutor;
 		this.ownsExecutors = ownsExecutors;
 
-		// IOModel ?????????
+		// IOModel を各サービスに設定
 		IOModel ioModel = apiProvider.getInstallationAPI().getIOModel();
 		this.monitorService.setIoModel(ioModel);
 		this.feedbackService.setIoModel(ioModel);
 
-		// ???????
+		// 初期設定の復元
 		restoreSettings();
 
-		// ???????????????
+		// バックグラウンドサービスの開始
 		this.monitorService.start();
 		this.feedbackService.start();
 
-		// ?????????
+		// 有効時のみ自動接続
 		if (monitorService.isEnabled()) {
 			triggerAutoConnect();
 		}
@@ -159,9 +156,9 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		monitorService.setEnabled(enabled);
 		feedbackService.setEnabled(enabled);
 
-		// ????????????????
+		// 入力コマンドバインディングの復元
 		for (CommandAction action : CommandAction.values()) {
-			String savedIo = model.get("cmd_" + action.name(), "(?????)");
+			String savedIo = model.get("cmd_" + action.name(), IoConstants.UNASSIGNED);
 			String param = "";
 			if (action == CommandAction.LOAD_PROGRAM) {
 				param = model.get(KEY_PROGRAM_PATH, "/programs/default.urp");
@@ -169,23 +166,23 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			monitorService.setCommandBinding(action, savedIo, param);
 		}
 
-		// ?????????????????
+		// ブール状態出力バインディングの復元
 		for (StatusOutputAction action : StatusOutputAction.values()) {
-			String savedIo = model.get("status_" + action.name(), "(?????)");
+			String savedIo = model.get("status_" + action.name(), IoConstants.UNASSIGNED);
 			feedbackService.setStatusBinding(action, savedIo);
 		}
 
-		// ?????????????????
+		// 整数コード出力バインディングの復元
 		for (StatusCodeOutputAction action : StatusCodeOutputAction.values()) {
-			String savedIo = model.get("code_" + action.name(), "(?????)");
+			String savedIo = model.get("code_" + action.name(), IoConstants.NOT_USED);
 			feedbackService.setCodeBinding(action, savedIo);
 		}
 
-		// ????????????
-		String busy = model.get(KEY_HANDSHAKE_BUSY, "(?????)");
-		String done = model.get(KEY_HANDSHAKE_DONE, "(?????)");
-		String error = model.get(KEY_HANDSHAKE_ERROR, "(?????)");
-		String errCode = model.get(KEY_HANDSHAKE_ERRCODE, "(?????)");
+		// ハンドシェイク設定の復元
+		String busy = model.get(KEY_HANDSHAKE_BUSY, IoConstants.NOT_USED);
+		String done = model.get(KEY_HANDSHAKE_DONE, IoConstants.NOT_USED);
+		String error = model.get(KEY_HANDSHAKE_ERROR, IoConstants.NOT_USED);
+		String errCode = model.get(KEY_HANDSHAKE_ERRCODE, IoConstants.NOT_USED);
 		monitorService.setHandshakeBindings(busy, done, error, errCode);
 	}
 
@@ -193,7 +190,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	public void openView() {
 		view.setUpdatingUI(true);
 		try {
-			// 1. ????? IO ????????????????? View ???????????
+			// 1. 利用可能な IO リストを生成して差分がある場合のみ View のコンボボックスに供給
 			List<String> inputOptions = buildInputOptions();
 			List<String> outputBoolOptions = buildOutputBoolOptions();
 			List<String> outputIntOptions = buildOutputIntOptions();
@@ -214,7 +211,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 				feedbackService.refreshDigitalIoCache();
 			}
 
-			// 2. ??????? View ???
+			// 2. 現在の保存値を View に反映
 			view.setEnabledCheckbox(monitorService.isEnabled());
 			view.setProgramPath(model.get(KEY_PROGRAM_PATH, "/programs/default.urp"));
 
@@ -234,16 +231,16 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			}
 
 			view.selectHandshakeIos(
-					model.get(KEY_HANDSHAKE_BUSY, "(?????)"),
-					model.get(KEY_HANDSHAKE_DONE, "(?????)"),
-					model.get(KEY_HANDSHAKE_ERROR, "(?????)"),
-					model.get(KEY_HANDSHAKE_ERRCODE, "(?????)")
+					model.get(KEY_HANDSHAKE_BUSY, IoConstants.NOT_USED),
+					model.get(KEY_HANDSHAKE_DONE, IoConstants.NOT_USED),
+					model.get(KEY_HANDSHAKE_ERROR, IoConstants.NOT_USED),
+					model.get(KEY_HANDSHAKE_ERRCODE, IoConstants.NOT_USED)
 			);
 		} finally {
 			view.setUpdatingUI(false);
 		}
 
-		// 3. UI ?????????? (2000ms ??? CPU ??????)
+		// 3. UI 定期更新タスクの開始 (2000ms 周期で CPU 負荷を最小化)
 		if (uiUpdateTask != null) {
 			uiUpdateTask.cancel(true);
 			uiUpdateTask = null;
@@ -260,7 +257,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			}
 		}, 0, 2000, TimeUnit.MILLISECONDS);
 
-		// 4. ?????????????
+		// 4. 未接続の場合は即時自動接続
 		triggerAutoConnect();
 	}
 
@@ -281,7 +278,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	@Override
 	public void generateScript(ScriptWriter writer) {
-		// Installation ??????????????????
+		// Installation 設定が適用されたことを示すログを出力
 		writer.appendLine("# URCap: IO Dashboard Controller active");
 	}
 
@@ -292,7 +289,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			view.setConnectionStatus(dashboardClient.isConnected(), primaryClient.isConnected(), primaryClient.getActivePort());
 		}
 
-		// ???????? (UI??????????????????????????????)
+		// 入力現在値の更新 (UIスレッドでの高負荷な走査を排除し、監視スレッドの最新値を参照)
 		for (CommandAction action : CommandAction.values()) {
 			IoCommandBinding b = monitorService.getCommandBinding(action);
 			if (b != null && b.isAssigned()) {
@@ -303,21 +300,21 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			}
 		}
 
-		// ????????
+		// 出力現在値の更新
 		RobotStatus status = feedbackService.getCurrentStatus();
 		for (StatusOutputAction action : StatusOutputAction.values()) {
 			boolean val = action.evaluate(status);
 			view.updateOutputStatus(action, val);
 		}
 
-		// ???????????
+		// 整数コード現在値の更新
 		int lastErr = monitorService.getLastErrorCode();
 		for (StatusCodeOutputAction action : StatusCodeOutputAction.values()) {
 			int val = action.evaluate(status, lastErr);
 			view.updateCodeStatus(action, val);
 		}
 
-		// ???? (????????????????????????)
+		// ログ更新 (ログタブ表示中かつ新規ログがある場合のみ差分反映)
 		if (view.isLogTabActive()) {
 			long currentSeq = monitorService.getLogSequenceNumber();
 			if (currentSeq != lastCheckedLogSeq) {
@@ -327,7 +324,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		}
 	}
 
-	// ------------------ ????????? ------------------
+	// ------------------ イベントハンドラ群 ------------------
 
 	public void onEnableToggled(final boolean enabled) {
 		model.set(KEY_ENABLED, enabled);
@@ -335,7 +332,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		feedbackService.setEnabled(enabled);
 
 		if (!enabled) {
-			// UI???????????????
+			// UI表示を直ちに「切断」に切り替え
 			view.setConnectionStatus(false, false, 0);
 		}
 
@@ -343,12 +340,12 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			@Override
 			public void run() {
 				if (!enabled) {
-					// ????: ???????0????????????
+					// 無効化時: 出力レジスタを0クリアし、ソケットを切断
 					feedbackService.clearAllOutputs();
 					monitorService.clearHandshakeOutputs();
 					dashboardClient.disconnect();
 					primaryClient.disconnect();
-					monitorService.addLog("???????????????: ????0?????????????");
+					monitorService.addLog("監視サービスが無効化されました: 全出力を0クリアし通信を切断しました");
 					SwingUtilities.invokeLater(new Runnable() {
 						@Override
 						public void run() {
@@ -356,8 +353,8 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 						}
 					});
 				} else {
-					// ????: ??????
-					monitorService.addLog("???????????????: ??????????");
+					// 有効化時: 再接続を開始
+					monitorService.addLog("監視サービスが有効化されました: 自動接続を開始します");
 					triggerAutoConnect();
 				}
 			}
@@ -376,19 +373,19 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		if (b != null) {
 			b.setParameter(path);
 		}
-		monitorService.addLog("???????????????: " + path);
+		monitorService.addLog("ロード対象プログラムパスを更新: " + path);
 	}
 
 	public void onStatusIoSelected(StatusOutputAction action, String ioName) {
 		model.set("status_" + action.name(), ioName);
 		feedbackService.setStatusBinding(action, ioName);
-		monitorService.addLog("????????: " + action.getDisplayName() + " -> " + ioName);
+		monitorService.addLog("状態出力割付変更: " + action.getDisplayName() + " -> " + ioName);
 	}
 
 	public void onStatusCodeIoSelected(StatusCodeOutputAction action, String ioName) {
 		model.set("code_" + action.name(), ioName);
 		feedbackService.setCodeBinding(action, ioName);
-		monitorService.addLog("?????????: " + action.getDisplayName() + " -> " + ioName);
+		monitorService.addLog("コード出力割付変更: " + action.getDisplayName() + " -> " + ioName);
 	}
 
 	public void onHandshakeChanged() {
@@ -408,7 +405,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	public void executeActionManually(CommandAction action) {
 		IoCommandBinding b = monitorService.getCommandBinding(action);
 		if (b == null) {
-			b = new IoCommandBinding(action, "?????", view.getProgramPath());
+			b = new IoCommandBinding(action, "手動テスト", view.getProgramPath());
 		}
 		final IoCommandBinding toExec = b;
 		asyncExecutor.submit(new Runnable() {
@@ -423,12 +420,12 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
-				monitorService.addLog("???????...");
+				monitorService.addLog("接続テスト開始...");
 				dashboardClient.disconnect();
 				boolean dOk = dashboardClient.connect();
 				primaryClient.disconnect();
 				boolean pOk = primaryClient.connect();
-				monitorService.addLog("????: Dashboard=" + (dOk ? "OK" : "NG") + ", Primary=" + (pOk ? "OK" : "NG"));
+				monitorService.addLog("接続結果: Dashboard=" + (dOk ? "OK" : "NG") + ", Primary=" + (pOk ? "OK" : "NG"));
 			}
 		});
 	}
@@ -438,57 +435,37 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		view.updateLogs(monitorService.getLogEntries());
 	}
 
-	// ------------------ IO ???????? ------------------
+	// ------------------ IO 候補生成ヘルパー (ビットレジスタのみ) ------------------
 
 	private List<String> buildInputOptions() {
 		List<String> list = new ArrayList<String>();
-		list.add("(?????)");
+		list.add(IoConstants.UNASSIGNED);
 
-		// ???????????: bit 0 ? 64
-		for (int i = 0; i <= 64; i++) {
-			list.add("input_bit_register_" + i);
-		}
-
-		// ??????
-		IOModel ioModel = apiProvider.getInstallationAPI().getIOModel();
-		if (ioModel != null) {
-			for (DigitalIO dio : ioModel.getIOs(DigitalIO.class)) {
-				if (dio.isInput()) {
-					list.add(dio.getName() != null && !dio.getName().isEmpty() ? dio.getName() : dio.getDefaultName());
-				}
-			}
+		// 汎用ブール入力レジスタのみ: bit 0 〜 64
+		for (int i = 0; i <= IoConstants.MAX_INPUT_BIT_INDEX; i++) {
+			list.add(IoConstants.INPUT_BIT_PREFIX + i);
 		}
 		return list;
 	}
 
 	private List<String> buildOutputBoolOptions() {
 		List<String> list = new ArrayList<String>();
-		list.add("(?????)");
+		list.add(IoConstants.UNASSIGNED);
 
-		// ???????????: bit 0 ? 64
-		for (int i = 0; i <= 64; i++) {
-			list.add("output_bit_register_" + i);
-		}
-
-		// ??????
-		IOModel ioModel = apiProvider.getInstallationAPI().getIOModel();
-		if (ioModel != null) {
-			for (DigitalIO dio : ioModel.getIOs(DigitalIO.class)) {
-				if (!dio.isInput()) {
-					list.add(dio.getName() != null && !dio.getName().isEmpty() ? dio.getName() : dio.getDefaultName());
-				}
-			}
+		// 汎用ブール出力レジスタのみ: bit 0 〜 64
+		for (int i = 0; i <= IoConstants.MAX_OUTPUT_BIT_INDEX; i++) {
+			list.add(IoConstants.OUTPUT_BIT_PREFIX + i);
 		}
 		return list;
 	}
 
 	private List<String> buildOutputIntOptions() {
 		List<String> list = new ArrayList<String>();
-		list.add("(?????)");
+		list.add(IoConstants.NOT_USED);
 
-		// ??????????: int 0 ? 47
-		for (int i = 0; i <= 47; i++) {
-			list.add("output_int_register_" + i);
+		// 汎用整数出力レジスタのみ: int 0 〜 47
+		for (int i = 0; i <= IoConstants.MAX_OUTPUT_INT_INDEX; i++) {
+			list.add(IoConstants.OUTPUT_INT_PREFIX + i);
 		}
 		return list;
 	}
