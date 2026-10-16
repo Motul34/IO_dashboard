@@ -111,7 +111,7 @@ Displays the connection status for the Dashboard Server and Primary Interface, a
 
 ## Installation & Usage
 
-1. Copy `target/IO_dashboard-1.2.0.urcap` to the UR controller via USB drive or network.
+1. Download the latest `IO_dashboard-X.X.X.urcap` from [GitHub Releases](../../releases), or copy the built file to the UR controller via USB drive or network.
 2. In PolyScope, open **Settings > System > URCaps**, click `+`, select the `.urcap` file, and restart PolyScope.
 3. Go to **Installation > IO Dashboard**, assign the desired input and output registers, and save the Installation.
 4. Ensure PolyScope is switched to **Remote Control** mode so that Dashboard commands (`play`, `power on`, etc.) from the PLC are accepted by the controller.
