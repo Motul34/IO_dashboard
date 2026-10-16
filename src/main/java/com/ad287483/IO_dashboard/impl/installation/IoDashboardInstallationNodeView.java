@@ -2,6 +2,7 @@ package com.ad287483.IO_dashboard.impl.installation;
 
 import com.ad287483.IO_dashboard.impl.client.RobotStatus;
 import com.ad287483.IO_dashboard.impl.monitor.CommandAction;
+import com.ad287483.IO_dashboard.impl.monitor.IoConstants;
 import com.ad287483.IO_dashboard.impl.monitor.StatusCodeOutputAction;
 import com.ad287483.IO_dashboard.impl.monitor.StatusOutputAction;
 import com.ad287483.IO_dashboard.impl.style.Style;
@@ -755,10 +756,12 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	/**
 	 * JComboBox のドロップダウンポップアップ内の JViewport に SIMPLE_SCROLL_MODE を適用する。
 	 * X11 ソフトウェアレンダリングにおける copyArea() に起因する文字崩れ・残像・とびとびを原理的に根絶する。
+	 * また prototypeDisplayValue を設定し、モデル変更時や初回表示時の全項目フォント幅走査（約1,500回）をゼロにする。
 	 */
 	private void optimizeComboBoxScroll(final JComboBox combo) {
 		combo.setMaximumRowCount(14);
 		combo.setRenderer(lightweightRenderer);
+		combo.setPrototypeDisplayValue(IoConstants.OUTPUT_BIT_PREFIX + "64 (カスタム名称)");
 		combo.addPopupMenuListener(new PopupMenuListener() {
 			@Override
 			public void popupMenuWillBecomeVisible(PopupMenuEvent e) {

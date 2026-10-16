@@ -97,14 +97,26 @@ public class IoMonitorService {
 		}
 	}
 
-	private int extractRegisterIndex(Register reg) {
+	private static int extractRegisterIndex(Register reg) {
 		if (reg == null) return -1;
 		String defName = reg.getDefaultName();
 		if (defName == null || defName.isEmpty()) return -1;
-		java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\d+").matcher(defName);
-		if (m.find()) {
+		int start = -1;
+		for (int i = 0; i < defName.length(); i++) {
+			char c = defName.charAt(i);
+			if (c >= '0' && c <= '9') {
+				if (start < 0) start = i;
+			} else if (start >= 0) {
+				try {
+					return Integer.parseInt(defName.substring(start, i));
+				} catch (NumberFormatException ignored) {
+					start = -1;
+				}
+			}
+		}
+		if (start >= 0) {
 			try {
-				return Integer.parseInt(m.group());
+				return Integer.parseInt(defName.substring(start));
 			} catch (NumberFormatException ignored) {}
 		}
 		return -1;

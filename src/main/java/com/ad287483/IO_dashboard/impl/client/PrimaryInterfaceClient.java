@@ -20,8 +20,8 @@ public class PrimaryInterfaceClient {
 	private static final int CONNECT_TIMEOUT_MS = 1500;
 
 	private final String host;
-	private int activePort = SECONDARY_PORT;
-	private Socket socket;
+	private volatile int activePort = SECONDARY_PORT;
+	private volatile Socket socket;
 	private PrintWriter writer;
 	private long lastConnectAttemptTime = 0;
 
@@ -89,8 +89,13 @@ public class PrimaryInterfaceClient {
 		}
 	}
 
-	public synchronized boolean isConnected() {
-		return socket != null && socket.isConnected() && !socket.isClosed();
+	/**
+	 * 接続中かどうか。
+	 * UIスレッドからの頻繁な状態照会をノンブロッキング (ロックフリー) で即時判定する。
+	 */
+	public boolean isConnected() {
+		Socket s = this.socket;
+		return s != null && s.isConnected() && !s.isClosed();
 	}
 
 	public int getActivePort() {

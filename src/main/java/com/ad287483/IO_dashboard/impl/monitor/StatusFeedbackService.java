@@ -85,6 +85,13 @@ public class StatusFeedbackService {
 		}
 	}
 
+	/**
+	 * 起動時の設定復元用。ソケットへの同期書き込みを伴わずにバインディングのみを登録する。
+	 */
+	public void initStatusBinding(StatusOutputAction action, String ioName) {
+		statusBindings.put(action, new IoStatusBinding(action, ioName));
+	}
+
 	public void setStatusBinding(StatusOutputAction action, String ioName) {
 		IoStatusBinding oldBinding = statusBindings.get(action);
 		if (oldBinding != null && oldBinding.isAssigned() && !oldBinding.getIoName().equals(ioName)) {
@@ -107,6 +114,13 @@ public class StatusFeedbackService {
 
 	public IoStatusBinding getStatusBinding(StatusOutputAction action) {
 		return statusBindings.get(action);
+	}
+
+	/**
+	 * 起動時の設定復元用。ソケットへの同期書き込みを伴わずにバインディングのみを登録する。
+	 */
+	public void initCodeBinding(StatusCodeOutputAction action, String ioName) {
+		codeBindings.put(action, new IoStatusCodeBinding(action, ioName));
 	}
 
 	public void setCodeBinding(StatusCodeOutputAction action, String ioName) {

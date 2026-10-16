@@ -21,7 +21,7 @@ public class DashboardClient {
 
 	private final String host;
 	private final int port;
-	private Socket socket;
+	private volatile Socket socket;
 	private BufferedReader reader;
 	private PrintWriter writer;
 
@@ -45,11 +45,12 @@ public class DashboardClient {
 		disconnect();
 
 		try {
-			socket = new Socket();
-			socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
-			socket.setSoTimeout(READ_TIMEOUT_MS);
-			reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
-			writer = new PrintWriter(socket.getOutputStream(), true);
+			Socket s = new Socket();
+			s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+			s.setSoTimeout(READ_TIMEOUT_MS);
+			reader = new BufferedReader(new InputStreamReader(s.getInputStream(), "UTF-8"));
+			writer = new PrintWriter(s.getOutputStream(), true);
+			socket = s;
 
 			// 接続ウェルカム行を読み出す
 			String welcome = reader.readLine();
@@ -82,9 +83,11 @@ public class DashboardClient {
 
 	/**
 	 * 接続中かどうか。
+	 * UIスレッドからの頻繁な状態照会をノンブロッキング (ロックフリー) で即時判定する。
 	 */
-	public synchronized boolean isConnected() {
-		return socket != null && socket.isConnected() && !socket.isClosed();
+	public boolean isConnected() {
+		Socket s = this.socket;
+		return s != null && s.isConnected() && !s.isClosed();
 	}
 
 	/**

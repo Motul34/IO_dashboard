@@ -63,6 +63,19 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	private List<String> cachedOutputBoolOptions = null;
 	private List<String> cachedOutputIntOptions = null;
 
+	private static class CachedRegisterInfo {
+		final Register register;
+		final String canonicalName;
+		final String defaultName;
+		CachedRegisterInfo(Register register, String canonicalName, String defaultName) {
+			this.register = register;
+			this.canonicalName = canonicalName;
+			this.defaultName = defaultName;
+		}
+	}
+	private final List<CachedRegisterInfo> cachedRegisters = new ArrayList<CachedRegisterInfo>();
+	private final Map<String, String> lastCustomNames = new HashMap<String, String>();
+
 	public String toCanonicalIoName(String displayName) {
 		if (displayName == null) return null;
 		String canonical = displayToCanonicalMap.get(displayName);
@@ -75,14 +88,26 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		return display != null ? display : canonicalName;
 	}
 
-	private int extractRegisterIndex(Register reg) {
+	private static int extractRegisterIndex(Register reg) {
 		if (reg == null) return -1;
 		String defName = reg.getDefaultName();
 		if (defName == null || defName.isEmpty()) return -1;
-		java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\d+").matcher(defName);
-		if (m.find()) {
+		int start = -1;
+		for (int i = 0; i < defName.length(); i++) {
+			char c = defName.charAt(i);
+			if (c >= '0' && c <= '9') {
+				if (start < 0) start = i;
+			} else if (start >= 0) {
+				try {
+					return Integer.parseInt(defName.substring(start, i));
+				} catch (NumberFormatException ignored) {
+					start = -1;
+				}
+			}
+		}
+		if (start >= 0) {
 			try {
-				return Integer.parseInt(m.group());
+				return Integer.parseInt(defName.substring(start));
 			} catch (NumberFormatException ignored) {}
 		}
 		return -1;
@@ -103,11 +128,57 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		return true;
 	}
 
+	private void initRegisterCache() {
+		cachedRegisters.clear();
+		if (ioModel == null) return;
+		try {
+			for (BooleanRegister reg : ioModel.getIOs(BooleanRegister.class)) {
+				int index = extractRegisterIndex(reg);
+				if (index >= 0) {
+					String canon = reg.isInput()
+							? (IoConstants.INPUT_BIT_PREFIX + index)
+							: (IoConstants.OUTPUT_BIT_PREFIX + index);
+					cachedRegisters.add(new CachedRegisterInfo(reg, canon, reg.getDefaultName()));
+				}
+			}
+		} catch (Throwable ignored) {}
+
+		try {
+			for (IntegerRegister reg : ioModel.getIOs(IntegerRegister.class)) {
+				int index = extractRegisterIndex(reg);
+				if (index >= 0) {
+					String canon = reg.isInput()
+							? ("input_int_register_" + index)
+							: (IoConstants.OUTPUT_INT_PREFIX + index);
+					cachedRegisters.add(new CachedRegisterInfo(reg, canon, reg.getDefaultName()));
+				}
+			}
+		} catch (Throwable ignored) {}
+	}
+
 	/**
 	 * IOModel からレジスタのカスタム名を収集し、双方向マッピングテーブルを最新化する。
-	 * PolyScopeの GP_bool_in[X] / GP_bool_out[X] 形式のインデックスを自動抽出して標準キーに紐付ける。
+	 * レジスタのカスタム名に変更があった場合のみ true を返し、未変更なら 0ms (false) で終了する。
 	 */
-	private void refreshNameMappings() {
+	private boolean refreshNameMappings() {
+		Map<String, String> currentCustomNames = new HashMap<String, String>();
+		for (CachedRegisterInfo info : cachedRegisters) {
+			try {
+				String custom = info.register.getName();
+				if (isUserCustomName(custom, info.defaultName, info.canonicalName)) {
+					currentCustomNames.put(info.canonicalName, custom.trim());
+				}
+			} catch (Throwable ignored) {}
+		}
+
+		// 前回とカスタム名が完全に一致していれば再構築をスキップ (0ms)
+		if (!lastCustomNames.isEmpty() && currentCustomNames.equals(lastCustomNames)) {
+			return false;
+		}
+
+		lastCustomNames.clear();
+		lastCustomNames.putAll(currentCustomNames);
+
 		canonicalToDisplayMap.clear();
 		displayToCanonicalMap.clear();
 
@@ -116,45 +187,12 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		canonicalToDisplayMap.put(IoConstants.NOT_USED, IoConstants.NOT_USED);
 		displayToCanonicalMap.put(IoConstants.NOT_USED, IoConstants.NOT_USED);
 
-		Map<String, String> rawCustomNames = new HashMap<String, String>();
-		if (ioModel != null) {
-			try {
-				for (BooleanRegister reg : ioModel.getIOs(BooleanRegister.class)) {
-					int index = extractRegisterIndex(reg);
-					if (index >= 0) {
-						String canon = reg.isInput()
-								? (IoConstants.INPUT_BIT_PREFIX + index)
-								: (IoConstants.OUTPUT_BIT_PREFIX + index);
-						String custom = reg.getName();
-						if (isUserCustomName(custom, reg.getDefaultName(), canon)) {
-							rawCustomNames.put(canon, custom.trim());
-						}
-					}
-				}
-			} catch (Throwable ignored) {}
-
-			try {
-				for (IntegerRegister reg : ioModel.getIOs(IntegerRegister.class)) {
-					int index = extractRegisterIndex(reg);
-					if (index >= 0) {
-						String canon = reg.isInput()
-								? ("input_int_register_" + index)
-								: (IoConstants.OUTPUT_INT_PREFIX + index);
-						String custom = reg.getName();
-						if (isUserCustomName(custom, reg.getDefaultName(), canon)) {
-							rawCustomNames.put(canon, custom.trim());
-						}
-					}
-				}
-			} catch (Throwable ignored) {}
-		}
-
 		Map<String, String> tempCanonicalToDisplay = new HashMap<String, String>();
 		Map<String, Integer> displayUsageCount = new HashMap<String, Integer>();
 
 		for (int i = 0; i <= IoConstants.MAX_INPUT_BIT_INDEX; i++) {
 			String canon = IoConstants.INPUT_BIT_PREFIX + i;
-			String custom = rawCustomNames.get(canon);
+			String custom = currentCustomNames.get(canon);
 			String disp = (custom != null) ? custom : canon;
 			tempCanonicalToDisplay.put(canon, disp);
 			Integer c = displayUsageCount.get(disp);
@@ -163,7 +201,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 		for (int i = 0; i <= IoConstants.MAX_OUTPUT_BIT_INDEX; i++) {
 			String canon = IoConstants.OUTPUT_BIT_PREFIX + i;
-			String custom = rawCustomNames.get(canon);
+			String custom = currentCustomNames.get(canon);
 			String disp = (custom != null) ? custom : canon;
 			tempCanonicalToDisplay.put(canon, disp);
 			Integer c = displayUsageCount.get(disp);
@@ -172,7 +210,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 		for (int i = 0; i <= IoConstants.MAX_OUTPUT_INT_INDEX; i++) {
 			String canon = IoConstants.OUTPUT_INT_PREFIX + i;
-			String custom = rawCustomNames.get(canon);
+			String custom = currentCustomNames.get(canon);
 			String disp = (custom != null) ? custom : canon;
 			tempCanonicalToDisplay.put(canon, disp);
 			Integer c = displayUsageCount.get(disp);
@@ -188,6 +226,8 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			canonicalToDisplayMap.put(canon, disp);
 			displayToCanonicalMap.put(disp, canon);
 		}
+
+		return true;
 	}
 	private long lastCheckedLogSeq = -1;
 	private final AtomicBoolean isConnecting = new AtomicBoolean(false);
@@ -246,6 +286,10 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		this.monitorService.setIoModel(ioModel);
 		this.feedbackService.setIoModel(ioModel);
 
+		// レジスタキャッシュの初期化と初期マッピング
+		initRegisterCache();
+		refreshNameMappings();
+
 		// 初期設定の復元
 		restoreSettings();
 
@@ -300,16 +344,16 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			monitorService.setCommandBinding(action, savedIo, "");
 		}
 
-		// ブール状態出力バインディングの復元
+		// ブール状態出力バインディングの復元 (起動時はソケットへの同期書き込みを伴わずに登録)
 		for (StatusOutputAction action : StatusOutputAction.values()) {
 			String savedIo = model.get("status_" + action.name(), IoConstants.UNASSIGNED);
-			feedbackService.setStatusBinding(action, savedIo);
+			feedbackService.initStatusBinding(action, savedIo);
 		}
 
-		// 整数コード出力バインディングの復元
+		// 整数コード出力バインディングの復元 (起動時はソケットへの同期書き込みを伴わずに登録)
 		for (StatusCodeOutputAction action : StatusCodeOutputAction.values()) {
 			String savedIo = model.get("code_" + action.name(), IoConstants.NOT_USED);
-			feedbackService.setCodeBinding(action, savedIo);
+			feedbackService.initCodeBinding(action, savedIo);
 		}
 
 		// ハンドシェイク設定の復元
@@ -324,26 +368,17 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	public void openView() {
 		view.setUpdatingUI(true);
 		try {
-			// 0. IOModel からカスタム名を収集しマッピングを最新化
-			refreshNameMappings();
+			// 0. IOModel からカスタム名を収集しマッピングを最新化 (変更がなければ 0ms)
+			boolean mappingsChanged = refreshNameMappings();
 
-			// 1. 表示名リストを生成して差分がある場合のみ View のコンボボックスに供給
-			List<String> inputOptions = buildInputOptions();
-			List<String> outputBoolOptions = buildOutputBoolOptions();
-			List<String> outputIntOptions = buildOutputIntOptions();
-
-			boolean optionsChanged = (cachedInputOptions == null
-					|| !inputOptions.equals(cachedInputOptions)
-					|| !outputBoolOptions.equals(cachedOutputBoolOptions)
-					|| !outputIntOptions.equals(cachedOutputIntOptions));
-
-			if (optionsChanged) {
-				cachedInputOptions = inputOptions;
-				cachedOutputBoolOptions = outputBoolOptions;
-				cachedOutputIntOptions = outputIntOptions;
-				view.populateInputIoOptions(inputOptions);
-				view.populateOutputBoolOptions(outputBoolOptions);
-				view.populateOutputIntOptions(outputIntOptions);
+			// 1. 初回またはIO名に変更があった場合のみ、表示名リストを生成して View のコンボボックスに供給
+			if (mappingsChanged || cachedInputOptions == null) {
+				cachedInputOptions = buildInputOptions();
+				cachedOutputBoolOptions = buildOutputBoolOptions();
+				cachedOutputIntOptions = buildOutputIntOptions();
+				view.populateInputIoOptions(cachedInputOptions);
+				view.populateOutputBoolOptions(cachedOutputBoolOptions);
+				view.populateOutputIntOptions(cachedOutputIntOptions);
 				monitorService.refreshIoCache();
 				feedbackService.refreshDigitalIoCache();
 			}
@@ -376,7 +411,10 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			view.setUpdatingUI(false);
 		}
 
-		// 3. UI 定期更新タスクの開始 (2000ms 周期で CPU 負荷を最小化)
+		// 3. 画面表示直後に最新状態を即時描画
+		updateUI();
+
+		// 4. UI 定期更新タスクの開始 (初回遅延 1000ms, 周期 1000ms)
 		if (uiUpdateTask != null) {
 			uiUpdateTask.cancel(true);
 			uiUpdateTask = null;
@@ -391,9 +429,9 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 					}
 				});
 			}
-		}, 0, 2000, TimeUnit.MILLISECONDS);
+		}, 1000, 1000, TimeUnit.MILLISECONDS);
 
-		// 4. 未接続の場合は即時自動接続
+		// 5. 未接続の場合は即時自動接続
 		triggerAutoConnect();
 	}
 
@@ -403,7 +441,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			uiUpdateTask.cancel(true);
 			uiUpdateTask = null;
 		}
-		view.clearCaches();
+		// view.clearCaches() は呼ばず維持することで、再オープン時の不要な全件再描画を抑止
 		lastCheckedLogSeq = -1;
 
 		if (ownsExecutors) {
