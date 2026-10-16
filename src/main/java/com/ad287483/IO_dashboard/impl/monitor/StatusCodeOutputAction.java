@@ -1,50 +1,51 @@
 package com.ad287483.IO_dashboard.impl.monitor;
 
 import com.ad287483.IO_dashboard.impl.client.RobotStatus;
+import com.ad287483.IO_dashboard.impl.i18n.I18n;
 
 /**
  * UR から PLC へ出力する多値状態の整数コード項目。
  */
 public enum StatusCodeOutputAction {
-	ROBOT_MODE_CODE("Robot Mode Code (整数)", "0:切断, 1:電源OFF, 3:電源ON, 4:IDLE, 7:RUNNING 等") {
+	ROBOT_MODE_CODE("code.ROBOT_MODE_CODE.name", "code.ROBOT_MODE_CODE.desc") {
 		@Override
 		public int evaluate(RobotStatus status, int lastErrorCode) {
 			return status.getRobotModeCode();
 		}
 	},
-	SAFETY_STATUS_CODE("Safety Status Code (整数)", "1:正常, 2:縮退, 3:保護停止, 5:非常停止 等") {
+	SAFETY_STATUS_CODE("code.SAFETY_STATUS_CODE.name", "code.SAFETY_STATUS_CODE.desc") {
 		@Override
 		public int evaluate(RobotStatus status, int lastErrorCode) {
 			return status.getSafetyStatusCode();
 		}
 	},
-	PROGRAM_STATE_CODE("Program State Code (整数)", "0:NONE, 1:STOPPED, 2:PLAYING, 3:PAUSED") {
+	PROGRAM_STATE_CODE("code.PROGRAM_STATE_CODE.name", "code.PROGRAM_STATE_CODE.desc") {
 		@Override
 		public int evaluate(RobotStatus status, int lastErrorCode) {
 			return status.getProgramStateCode();
 		}
 	},
-	LAST_ERROR_CODE("Last Error Code (直近エラーコード)", "0:正常, 1:ファイルなし, 2:セーフティ未確認, 3:実行拒否, 4:通信エラー") {
+	LAST_ERROR_CODE("code.LAST_ERROR_CODE.name", "code.LAST_ERROR_CODE.desc") {
 		@Override
 		public int evaluate(RobotStatus status, int lastErrorCode) {
 			return lastErrorCode;
 		}
 	};
 
-	private final String displayName;
-	private final String description;
+	private final String displayNameKey;
+	private final String descriptionKey;
 
-	StatusCodeOutputAction(String displayName, String description) {
-		this.displayName = displayName;
-		this.description = description;
+	StatusCodeOutputAction(String displayNameKey, String descriptionKey) {
+		this.displayNameKey = displayNameKey;
+		this.descriptionKey = descriptionKey;
 	}
 
 	public String getDisplayName() {
-		return displayName;
+		return I18n.t(displayNameKey);
 	}
 
 	public String getDescription() {
-		return description;
+		return I18n.t(descriptionKey);
 	}
 
 	public abstract int evaluate(RobotStatus status, int lastErrorCode);

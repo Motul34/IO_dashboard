@@ -39,6 +39,6 @@ public class IoCommandBinding implements Serializable {
 	}
 
 	public boolean isAssigned() {
-		return ioName != null && !ioName.trim().isEmpty() && !IoConstants.UNASSIGNED.equals(ioName);
+		return !IoConstants.isUnassigned(ioName);
 	}
 }

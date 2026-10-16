@@ -1,30 +1,32 @@
 package com.ad287483.IO_dashboard.impl.monitor;
 
+import com.ad287483.IO_dashboard.impl.i18n.I18n;
+
 /**
  * PLC からの入力信号により発火される制御アクション。
  */
 public enum CommandAction {
-	POWER_ON_AND_RELEASE("一括起動 (電源ON & ブレーキ解除)", "power on -> brake release"),
-	POWER_ON("電源ON (Power On)", "power on"),
-	BRAKE_RELEASE("ブレーキ解除 (Brake Release)", "brake release"),
-	POWER_OFF("電源OFF (Power Off)", "power off"),
-	PLAY("プログラム再生 (Play)", "play"),
-	STOP("プログラム停止 (Stop)", "stop"),
-	PAUSE("プログラム一時停止 (Pause)", "pause"),
-	UNLOCK_PROTECTIVE_STOP("保護停止解除 & ポップアップ消去", "unlock protective stop / close popup"),
-	CLOSE_POPUP("ポップアップ消去 (Close Popup)", "close popup"),
-	RESTART_SAFETY("セーフティリスタート (Restart Safety)", "restart safety");
+	POWER_ON_AND_RELEASE("cmd.POWER_ON_AND_RELEASE", "power on -> brake release"),
+	POWER_ON("cmd.POWER_ON", "power on"),
+	BRAKE_RELEASE("cmd.BRAKE_RELEASE", "brake release"),
+	POWER_OFF("cmd.POWER_OFF", "power off"),
+	PLAY("cmd.PLAY", "play"),
+	STOP("cmd.STOP", "stop"),
+	PAUSE("cmd.PAUSE", "pause"),
+	UNLOCK_PROTECTIVE_STOP("cmd.UNLOCK_PROTECTIVE_STOP", "unlock protective stop / close popup"),
+	CLOSE_POPUP("cmd.CLOSE_POPUP", "close popup"),
+	RESTART_SAFETY("cmd.RESTART_SAFETY", "restart safety");
 
-	private final String displayName;
+	private final String displayNameKey;
 	private final String dashboardCommand;
 
-	CommandAction(String displayName, String dashboardCommand) {
-		this.displayName = displayName;
+	CommandAction(String displayNameKey, String dashboardCommand) {
+		this.displayNameKey = displayNameKey;
 		this.dashboardCommand = dashboardCommand;
 	}
 
 	public String getDisplayName() {
-		return displayName;
+		return I18n.t(displayNameKey);
 	}
 
 	public String getDashboardCommand() {

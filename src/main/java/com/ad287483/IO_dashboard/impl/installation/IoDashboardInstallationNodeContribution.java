@@ -3,6 +3,7 @@ package com.ad287483.IO_dashboard.impl.installation;
 import com.ad287483.IO_dashboard.impl.client.DashboardClient;
 import com.ad287483.IO_dashboard.impl.client.PrimaryInterfaceClient;
 import com.ad287483.IO_dashboard.impl.client.RobotStatus;
+import com.ad287483.IO_dashboard.impl.i18n.I18n;
 import com.ad287483.IO_dashboard.impl.monitor.*;
 import com.ur.urcap.api.contribution.InstallationNodeContribution;
 import com.ur.urcap.api.contribution.installation.CreationContext;
@@ -18,6 +19,7 @@ import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -61,6 +63,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	// UI最適化用キャッシュ
 	private List<String> cachedInputOptions = null;
 	private List<String> cachedOutputBoolOptions = null;
+	private List<String> cachedHandshakeBoolOptions = null;
 	private List<String> cachedOutputIntOptions = null;
 
 	private static class CachedRegisterInfo {
@@ -75,6 +78,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	}
 	private final List<CachedRegisterInfo> cachedRegisters = new ArrayList<CachedRegisterInfo>();
 	private final Map<String, String> lastCustomNames = new HashMap<String, String>();
+	private Locale lastMappedLocale = null;
 
 	public String toCanonicalIoName(String displayName) {
 		if (displayName == null) return null;
@@ -158,7 +162,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	/**
 	 * IOModel からレジスタのカスタム名を収集し、双方向マッピングテーブルを最新化する。
-	 * レジスタのカスタム名に変更があった場合のみ true を返し、未変更なら 0ms (false) で終了する。
+	 * レジスタのカスタム名または言語に変更があった場合のみ true を返し、未変更なら 0ms (false) で終了する。
 	 */
 	private boolean refreshNameMappings() {
 		Map<String, String> currentCustomNames = new HashMap<String, String>();
@@ -171,21 +175,34 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			} catch (Throwable ignored) {}
 		}
 
-		// 前回とカスタム名が完全に一致していれば再構築をスキップ (0ms)
-		if (!lastCustomNames.isEmpty() && currentCustomNames.equals(lastCustomNames)) {
+		Locale curLocale = I18n.getLocale();
+		// 前回とカスタム名およびロケールが完全に一致していれば再構築をスキップ (0ms)
+		if (lastMappedLocale != null && lastMappedLocale.equals(curLocale)
+				&& !canonicalToDisplayMap.isEmpty() && currentCustomNames.equals(lastCustomNames)) {
 			return false;
 		}
 
+		lastMappedLocale = curLocale;
 		lastCustomNames.clear();
 		lastCustomNames.putAll(currentCustomNames);
 
 		canonicalToDisplayMap.clear();
 		displayToCanonicalMap.clear();
 
-		canonicalToDisplayMap.put(IoConstants.UNASSIGNED, IoConstants.UNASSIGNED);
+		String unassignedDisp = I18n.t("io.unassigned");
+		String notUsedDisp = I18n.t("io.not_used");
+
+		canonicalToDisplayMap.put(IoConstants.UNASSIGNED, unassignedDisp);
+		canonicalToDisplayMap.put(IoConstants.UNASSIGNED_EN, unassignedDisp);
+		displayToCanonicalMap.put(unassignedDisp, IoConstants.UNASSIGNED);
 		displayToCanonicalMap.put(IoConstants.UNASSIGNED, IoConstants.UNASSIGNED);
-		canonicalToDisplayMap.put(IoConstants.NOT_USED, IoConstants.NOT_USED);
+		displayToCanonicalMap.put(IoConstants.UNASSIGNED_EN, IoConstants.UNASSIGNED);
+
+		canonicalToDisplayMap.put(IoConstants.NOT_USED, notUsedDisp);
+		canonicalToDisplayMap.put(IoConstants.NOT_USED_EN, notUsedDisp);
+		displayToCanonicalMap.put(notUsedDisp, IoConstants.NOT_USED);
 		displayToCanonicalMap.put(IoConstants.NOT_USED, IoConstants.NOT_USED);
+		displayToCanonicalMap.put(IoConstants.NOT_USED_EN, IoConstants.NOT_USED);
 
 		Map<String, String> tempCanonicalToDisplay = new HashMap<String, String>();
 		Map<String, Integer> displayUsageCount = new HashMap<String, Integer>();
@@ -280,6 +297,11 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		this.asyncExecutor = asyncExecutor;
 		this.ownsExecutors = ownsExecutors;
 
+		try {
+			Locale locale = apiProvider.getSystemAPI().getSystemSettings().getLocalization().getLocale();
+			I18n.setLocale(locale);
+		} catch (Throwable ignored) {}
+
 		// IOModel を保持し各サービスに設定
 		IOModel ioModel = apiProvider.getInstallationAPI().getIOModel();
 		this.ioModel = ioModel;
@@ -366,6 +388,11 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	@Override
 	public void openView() {
+		try {
+			Locale locale = apiProvider.getSystemAPI().getSystemSettings().getLocalization().getLocale();
+			I18n.setLocale(locale);
+		} catch (Throwable ignored) {}
+
 		view.setUpdatingUI(true);
 		try {
 			// 0. IOModel からカスタム名を収集しマッピングを最新化 (変更がなければ 0ms)
@@ -375,9 +402,11 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			if (mappingsChanged || cachedInputOptions == null) {
 				cachedInputOptions = buildInputOptions();
 				cachedOutputBoolOptions = buildOutputBoolOptions();
+				cachedHandshakeBoolOptions = buildHandshakeBoolOptions();
 				cachedOutputIntOptions = buildOutputIntOptions();
 				view.populateInputIoOptions(cachedInputOptions);
 				view.populateOutputBoolOptions(cachedOutputBoolOptions);
+				view.populateHandshakeBoolOptions(cachedHandshakeBoolOptions);
 				view.populateOutputIntOptions(cachedOutputIntOptions);
 				monitorService.refreshIoCache();
 				feedbackService.refreshDigitalIoCache();
@@ -402,10 +431,10 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			}
 
 			view.selectHandshakeIos(
-					toDisplayIoName(model.get(KEY_HANDSHAKE_BUSY, IoConstants.NOT_USED)),
-					toDisplayIoName(model.get(KEY_HANDSHAKE_DONE, IoConstants.NOT_USED)),
-					toDisplayIoName(model.get(KEY_HANDSHAKE_ERROR, IoConstants.NOT_USED)),
-					toDisplayIoName(model.get(KEY_HANDSHAKE_ERRCODE, IoConstants.NOT_USED))
+					toHandshakeDisplayIoName(model.get(KEY_HANDSHAKE_BUSY, IoConstants.NOT_USED)),
+					toHandshakeDisplayIoName(model.get(KEY_HANDSHAKE_DONE, IoConstants.NOT_USED)),
+					toHandshakeDisplayIoName(model.get(KEY_HANDSHAKE_ERROR, IoConstants.NOT_USED)),
+					toHandshakeDisplayIoName(model.get(KEY_HANDSHAKE_ERRCODE, IoConstants.NOT_USED))
 			);
 		} finally {
 			view.setUpdatingUI(false);
@@ -524,7 +553,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 					monitorService.clearHandshakeOutputs();
 					dashboardClient.disconnect();
 					primaryClient.disconnect();
-					monitorService.addLog("監視サービスが無効化されました: 全出力を0クリアし通信を切断しました");
+					monitorService.addLog(I18n.t("log.service_disabled_detail"));
 					SwingUtilities.invokeLater(new Runnable() {
 						@Override
 						public void run() {
@@ -533,7 +562,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 					});
 				} else {
 					// 有効化時: 再接続を開始
-					monitorService.addLog("監視サービスが有効化されました: 自動接続を開始します");
+					monitorService.addLog(I18n.t("log.service_enabled_detail"));
 					triggerAutoConnect();
 				}
 			}
@@ -562,7 +591,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			@Override
 			public void run() {
 				feedbackService.setStatusBinding(action, canonicalIo);
-				monitorService.addLog("状態出力割付変更: " + action.getDisplayName() + " -> " + canonicalIo);
+				monitorService.addLog(I18n.t("log.status_binding_changed", action.getDisplayName(), canonicalIo));
 			}
 		});
 	}
@@ -579,7 +608,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 			@Override
 			public void run() {
 				feedbackService.setCodeBinding(action, canonicalIo);
-				monitorService.addLog("コード出力割付変更: " + action.getDisplayName() + " -> " + canonicalIo);
+				monitorService.addLog(I18n.t("log.code_binding_changed", action.getDisplayName(), canonicalIo));
 			}
 		});
 	}
@@ -615,7 +644,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 	public void executeActionManually(CommandAction action) {
 		IoCommandBinding b = monitorService.getCommandBinding(action);
 		if (b == null) {
-			b = new IoCommandBinding(action, "手動テスト", "");
+			b = new IoCommandBinding(action, I18n.t("log.manual_test"), "");
 		}
 		final IoCommandBinding toExec = b;
 		asyncExecutor.submit(new Runnable() {
@@ -630,12 +659,12 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 		asyncExecutor.submit(new Runnable() {
 			@Override
 			public void run() {
-				monitorService.addLog("接続テスト開始...");
+				monitorService.addLog(I18n.t("log.conn_test_start"));
 				dashboardClient.disconnect();
 				boolean dOk = dashboardClient.connect();
 				primaryClient.disconnect();
 				boolean pOk = primaryClient.connect();
-				monitorService.addLog("接続結果: Dashboard=" + (dOk ? "OK" : "NG") + ", Primary=" + (pOk ? "OK" : "NG"));
+				monitorService.addLog(I18n.t("log.conn_test_result", dOk ? "OK" : "NG", pOk ? "OK" : "NG"));
 			}
 		});
 	}
@@ -647,9 +676,16 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	// ------------------ IO 候補生成ヘルパー (ビットレジスタのみ) ------------------
 
+	private String toHandshakeDisplayIoName(String canonicalName) {
+		if (IoConstants.isNotUsed(canonicalName) || IoConstants.isUnassigned(canonicalName)) {
+			return toDisplayIoName(IoConstants.NOT_USED);
+		}
+		return toDisplayIoName(canonicalName);
+	}
+
 	private List<String> buildInputOptions() {
 		List<String> list = new ArrayList<String>();
-		list.add(IoConstants.UNASSIGNED);
+		list.add(toDisplayIoName(IoConstants.UNASSIGNED));
 		for (int i = 0; i <= IoConstants.MAX_INPUT_BIT_INDEX; i++) {
 			String canon = IoConstants.INPUT_BIT_PREFIX + i;
 			list.add(toDisplayIoName(canon));
@@ -659,7 +695,17 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	private List<String> buildOutputBoolOptions() {
 		List<String> list = new ArrayList<String>();
-		list.add(IoConstants.UNASSIGNED);
+		list.add(toDisplayIoName(IoConstants.UNASSIGNED));
+		for (int i = 0; i <= IoConstants.MAX_OUTPUT_BIT_INDEX; i++) {
+			String canon = IoConstants.OUTPUT_BIT_PREFIX + i;
+			list.add(toDisplayIoName(canon));
+		}
+		return list;
+	}
+
+	private List<String> buildHandshakeBoolOptions() {
+		List<String> list = new ArrayList<String>();
+		list.add(toDisplayIoName(IoConstants.NOT_USED));
 		for (int i = 0; i <= IoConstants.MAX_OUTPUT_BIT_INDEX; i++) {
 			String canon = IoConstants.OUTPUT_BIT_PREFIX + i;
 			list.add(toDisplayIoName(canon));
@@ -669,7 +715,7 @@ public class IoDashboardInstallationNodeContribution implements InstallationNode
 
 	private List<String> buildOutputIntOptions() {
 		List<String> list = new ArrayList<String>();
-		list.add(IoConstants.NOT_USED);
+		list.add(toDisplayIoName(IoConstants.NOT_USED));
 		for (int i = 0; i <= IoConstants.MAX_OUTPUT_INT_INDEX; i++) {
 			String canon = IoConstants.OUTPUT_INT_PREFIX + i;
 			list.add(toDisplayIoName(canon));

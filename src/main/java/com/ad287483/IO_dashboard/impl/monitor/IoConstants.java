@@ -7,11 +7,23 @@ public final class IoConstants {
 
 	private IoConstants() {}
 
-	/** 未割り当てを表す文字列: (未割り当て) */
+	/** 未割り当てを表す内部標準文字列: (未割り当て) */
 	public static final String UNASSIGNED = "(未割り当て)";
+	public static final String UNASSIGNED_EN = "(Unassigned)";
 
-	/** 使用しないを表す文字列: (使用しない) */
+	/** 使用しないを表す内部標準文字列: (使用しない) */
 	public static final String NOT_USED = "(使用しない)";
+	public static final String NOT_USED_EN = "(Not Used)";
+
+	public static boolean isUnassigned(String ioName) {
+		return ioName == null || ioName.trim().isEmpty()
+				|| UNASSIGNED.equals(ioName) || UNASSIGNED_EN.equalsIgnoreCase(ioName);
+	}
+
+	public static boolean isNotUsed(String ioName) {
+		return ioName == null || ioName.trim().isEmpty()
+				|| NOT_USED.equals(ioName) || NOT_USED_EN.equalsIgnoreCase(ioName);
+	}
 
 	/** 汎用ブール入力レジスタプレフィックス */
 	public static final String INPUT_BIT_PREFIX = "input_bit_register_";

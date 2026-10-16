@@ -3,6 +3,7 @@ package com.ad287483.IO_dashboard.impl.monitor;
 import com.ad287483.IO_dashboard.impl.client.DashboardClient;
 import com.ad287483.IO_dashboard.impl.client.PrimaryInterfaceClient;
 import com.ad287483.IO_dashboard.impl.client.RobotStatus;
+import com.ad287483.IO_dashboard.impl.i18n.I18n;
 import com.ur.urcap.api.domain.io.DigitalIO;
 import com.ur.urcap.api.domain.io.IO;
 import com.ur.urcap.api.domain.io.IOModel;
@@ -205,7 +206,7 @@ public class StatusFeedbackService {
 		if (!dashboardClient.isConnected()) {
 			if (dashboardClient.connect()) {
 				if (!loggedDashboardConnected) {
-					if (monitorService != null) monitorService.addLog("接続確立: Dashboard Server (127.0.0.1:29999) - OK");
+					if (monitorService != null) monitorService.addLog(I18n.t("log.connected_dashboard"));
 					loggedDashboardConnected = true;
 				}
 			}
@@ -217,7 +218,7 @@ public class StatusFeedbackService {
 		if (!primaryClient.isConnected()) {
 			if (primaryClient.connect()) {
 				if (!loggedPrimaryConnected) {
-					if (monitorService != null) monitorService.addLog("接続確立: Primary Interface (ポート " + primaryClient.getActivePort() + ") - OK");
+					if (monitorService != null) monitorService.addLog(I18n.t("log.connected_primary", primaryClient.getActivePort()));
 					loggedPrimaryConnected = true;
 				}
 			}
@@ -337,7 +338,7 @@ public class StatusFeedbackService {
 	}
 
 	public boolean writeBooleanOutput(String ioName, boolean value, boolean logOutput) {
-		if (ioName == null || ioName.trim().isEmpty() || IoConstants.UNASSIGNED.equals(ioName)) {
+		if (IoConstants.isUnassigned(ioName)) {
 			return false;
 		}
 
@@ -360,7 +361,8 @@ public class StatusFeedbackService {
 		}
 
 		if (logOutput && monitorService != null) {
-			monitorService.addLog("Bit出力: " + ioName + " = " + (value ? "1(ON)" : "0(OFF)") + (result ? " [成功]" : " [失敗/未接続]"));
+			String valStr = value ? "1(ON)" : "0(OFF)";
+			monitorService.addLog(I18n.t(result ? "log.bit_output_ok" : "log.bit_output_fail", ioName, valStr));
 		}
 		return result;
 	}
@@ -373,7 +375,7 @@ public class StatusFeedbackService {
 	}
 
 	public boolean writeIntegerOutput(String ioName, int value, boolean logOutput) {
-		if (ioName == null || ioName.trim().isEmpty() || IoConstants.NOT_USED.equals(ioName)) {
+		if (IoConstants.isNotUsed(ioName)) {
 			return false;
 		}
 
@@ -386,7 +388,7 @@ public class StatusFeedbackService {
 		}
 
 		if (logOutput && monitorService != null) {
-			monitorService.addLog("Int出力: " + ioName + " = " + value + (result ? " [成功]" : " [失敗/未接続]"));
+			monitorService.addLog(I18n.t(result ? "log.int_output_ok" : "log.int_output_fail", ioName, value));
 		}
 		return result;
 	}

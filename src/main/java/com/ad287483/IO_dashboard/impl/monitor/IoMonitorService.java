@@ -2,6 +2,7 @@ package com.ad287483.IO_dashboard.impl.monitor;
 
 import com.ad287483.IO_dashboard.impl.client.DashboardClient;
 import com.ad287483.IO_dashboard.impl.client.PrimaryInterfaceClient;
+import com.ad287483.IO_dashboard.impl.i18n.I18n;
 import com.ur.urcap.api.domain.io.BooleanRegister;
 import com.ur.urcap.api.domain.io.DigitalIO;
 import com.ur.urcap.api.domain.io.IO;
@@ -137,7 +138,7 @@ public class IoMonitorService {
 		if (!enabled) {
 			clearHandshakeOutputs();
 		}
-		addLog(enabled ? "監視サービスを開始しました (ENABLED)" : "監視サービスを停止しました (DISABLED)");
+		addLog(enabled ? I18n.t("log.service_started") : I18n.t("log.service_stopped"));
 	}
 
 	public void clearHandshakeOutputs() {
@@ -215,7 +216,7 @@ public class IoMonitorService {
 				}
 			}
 		}, 100, POLLING_INTERVAL_MS, TimeUnit.MILLISECONDS);
-		addLog("IOポーリングスレッド稼働中 (周期: " + POLLING_INTERVAL_MS + "ms)");
+		addLog(I18n.t("log.polling_started", POLLING_INTERVAL_MS));
 	}
 
 	/**
@@ -275,7 +276,7 @@ public class IoMonitorService {
 	 * キャッシュから O(1) で即時取得し、高負荷な全件探索を排除。
 	 */
 	public boolean readIoValue(String ioName) {
-		if (ioName == null || ioName.trim().isEmpty() || IoConstants.UNASSIGNED.equals(ioName)) {
+		if (IoConstants.isUnassigned(ioName)) {
 			return false;
 		}
 
@@ -304,7 +305,7 @@ public class IoMonitorService {
 	 */
 	private void triggerAction(final IoCommandBinding binding) {
 		if (isExecutingCommand) {
-			addLog("警告: 他のコマンド実行中のため、トリガー要求 [" + binding.getAction().getDisplayName() + "] はスキップされました");
+			addLog(I18n.t("log.warn_command_busy", binding.getAction().getDisplayName()));
 			return;
 		}
 
@@ -326,7 +327,7 @@ public class IoMonitorService {
 		setHandshakeOutput(errorIoName, false);
 
 		CommandAction action = binding.getAction();
-		addLog("トリガー検知: " + binding.getIoName() + " (OFF → ON) : [" + action.getDisplayName() + "]");
+		addLog(I18n.t("log.trigger_detected", binding.getIoName(), action.getDisplayName()));
 
 		boolean success = false;
 		String response = "";
@@ -397,14 +398,14 @@ public class IoMonitorService {
 					break;
 			}
 
-			addLog("Dashboard 応答: \"" + response + "\" (" + (success ? "成功" : "失敗") + ")");
+			addLog(I18n.t(success ? "log.dashboard_response_success" : "log.dashboard_response_failed", response));
 		} catch (IOException e) {
-			response = "通信エラー: " + e.getMessage();
+			response = I18n.t("log.comm_error", e.getMessage());
 			errCode = 4;
 			success = false;
 			addLog(response);
 		} catch (InterruptedException e) {
-			response = "中断されました";
+			response = I18n.t("log.interrupted");
 			errCode = 3;
 			success = false;
 			addLog(response);
@@ -433,7 +434,7 @@ public class IoMonitorService {
 	}
 
 	private void setHandshakeOutput(String ioName, boolean value) {
-		if (ioName == null || ioName.trim().isEmpty() || IoConstants.NOT_USED.equals(ioName)) {
+		if (IoConstants.isNotUsed(ioName) || IoConstants.isUnassigned(ioName)) {
 			return;
 		}
 
@@ -454,7 +455,7 @@ public class IoMonitorService {
 	}
 
 	private void updateErrorCodeOutput(int code) {
-		if (errorCodeIoName == null || errorCodeIoName.trim().isEmpty() || IoConstants.NOT_USED.equals(errorCodeIoName)) {
+		if (IoConstants.isNotUsed(errorCodeIoName) || IoConstants.isUnassigned(errorCodeIoName)) {
 			return;
 		}
 		if (errorCodeIoName.startsWith("output_int_register_")) {

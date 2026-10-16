@@ -115,7 +115,8 @@ public class StatusFeedbackServiceTest {
 	public void testWriteBooleanOutputAndLogging() throws Exception {
 		assertTrue(primaryClient.connect());
 
-		// 1. レジスタへ書き込みテスト
+		// 1. 日本語ロケールでのレジスタ書き込み＆ログテスト
+		com.ad287483.IO_dashboard.impl.i18n.I18n.setLocale(java.util.Locale.JAPANESE);
 		boolean ok = feedbackService.writeBooleanOutput("output_bit_register_10", true);
 		assertTrue(ok);
 
@@ -124,15 +125,32 @@ public class StatusFeedbackServiceTest {
 		assertNotNull(script);
 		assertTrue(script.contains("write_output_boolean_register(10, True)"));
 
-		// ログに記録されたか確認
-		boolean foundLog = false;
+		// 日本語ログに記録されたか確認
+		boolean foundJaLog = false;
 		for (String entry : monitorService.getLogEntries()) {
 			if (entry.contains("Bit出力: output_bit_register_10 = 1(ON) [成功]")) {
-				foundLog = true;
+				foundJaLog = true;
 				break;
 			}
 		}
-		assertTrue(foundLog, "ログにBit出力成功が記録されていること");
+		assertTrue(foundJaLog, "日本語ログにBit出力成功が記録されていること");
+
+		// 2. 英語ロケールでのレジスタ書き込み＆ログテスト
+		com.ad287483.IO_dashboard.impl.i18n.I18n.setLocale(java.util.Locale.ENGLISH);
+		boolean okEn = feedbackService.writeBooleanOutput("output_bit_register_11", false);
+		assertTrue(okEn);
+		String scriptEn = receivedScripts.poll(2, TimeUnit.SECONDS);
+		assertNotNull(scriptEn);
+		assertTrue(scriptEn.contains("write_output_boolean_register(11, False)"));
+
+		boolean foundEnLog = false;
+		for (String entry : monitorService.getLogEntries()) {
+			if (entry.contains("Bit Output: output_bit_register_11 = 0(OFF) [OK]")) {
+				foundEnLog = true;
+				break;
+			}
+		}
+		assertTrue(foundEnLog, "英語ログにBit Output成功が記録されていること");
 	}
 
 	@Test

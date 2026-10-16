@@ -2,6 +2,7 @@ package com.ad287483.IO_dashboard.impl.installation;
 
 import com.ad287483.IO_dashboard.impl.client.DashboardClient;
 import com.ad287483.IO_dashboard.impl.client.PrimaryInterfaceClient;
+import com.ad287483.IO_dashboard.impl.i18n.I18n;
 import com.ad287483.IO_dashboard.impl.monitor.IoMonitorService;
 import com.ad287483.IO_dashboard.impl.monitor.StatusFeedbackService;
 import com.ad287483.IO_dashboard.impl.style.Style;
@@ -39,11 +40,18 @@ public class IoDashboardInstallationNodeService implements SwingInstallationNode
 
 	@Override
 	public String getTitle(Locale locale) {
+		if (locale != null) {
+			I18n.setLocale(locale);
+		}
 		return "IO Dashboard";
 	}
 
 	@Override
 	public IoDashboardInstallationNodeView createView(ViewAPIProvider apiProvider) {
+		try {
+			Locale locale = apiProvider.getSystemAPI().getSystemSettings().getLocalization().getLocale();
+			I18n.setLocale(locale);
+		} catch (Throwable ignored) {}
 		Style style = new V5Style();
 		return new IoDashboardInstallationNodeView(style);
 	}
@@ -54,6 +62,10 @@ public class IoDashboardInstallationNodeService implements SwingInstallationNode
 			IoDashboardInstallationNodeView view,
 			DataModel model,
 			CreationContext context) {
+		try {
+			Locale locale = apiProvider.getSystemAPI().getSystemSettings().getLocalization().getLocale();
+			I18n.setLocale(locale);
+		} catch (Throwable ignored) {}
 		return new IoDashboardInstallationNodeContribution(
 				apiProvider,
 				view,

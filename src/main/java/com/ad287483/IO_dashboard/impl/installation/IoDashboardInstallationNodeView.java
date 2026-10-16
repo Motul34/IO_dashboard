@@ -1,6 +1,7 @@
 package com.ad287483.IO_dashboard.impl.installation;
 
 import com.ad287483.IO_dashboard.impl.client.RobotStatus;
+import com.ad287483.IO_dashboard.impl.i18n.I18n;
 import com.ad287483.IO_dashboard.impl.monitor.CommandAction;
 import com.ad287483.IO_dashboard.impl.monitor.IoConstants;
 import com.ad287483.IO_dashboard.impl.monitor.StatusCodeOutputAction;
@@ -161,7 +162,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		Box box = Box.createHorizontalBox();
 		box.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		enableCheckBox = new JCheckBox("IO Dashboard 監視サービスを有効にする");
+		enableCheckBox = new JCheckBox(I18n.t("header.enable_service"));
 		enableCheckBox.setFont(new Font("SansSerif", Font.BOLD, 13));
 		enableCheckBox.setFocusPainted(false);
 		enableCheckBox.addActionListener(new ActionListener() {
@@ -173,19 +174,19 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		box.add(enableCheckBox);
 
 		box.add(Box.createRigidArea(new Dimension(20, 0)));
-		dashboardStatusLabel = new JLabel("Dashboard (29999): 確認中");
+		dashboardStatusLabel = new JLabel(I18n.t("header.dashboard_checking"));
 		dashboardStatusLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
-		dashboardStatusLabel.setPreferredSize(new Dimension(190, 20));
+		dashboardStatusLabel.setPreferredSize(new Dimension(200, 20));
 		box.add(dashboardStatusLabel);
 
 		box.add(Box.createRigidArea(new Dimension(15, 0)));
-		primaryStatusLabel = new JLabel("Primary (30002): 確認中");
+		primaryStatusLabel = new JLabel(I18n.t("header.primary_checking"));
 		primaryStatusLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
-		primaryStatusLabel.setPreferredSize(new Dimension(180, 20));
+		primaryStatusLabel.setPreferredSize(new Dimension(190, 20));
 		box.add(primaryStatusLabel);
 
 		box.add(Box.createRigidArea(new Dimension(15, 0)));
-		JButton reconnectBtn = new JButton("再接続テスト");
+		JButton reconnectBtn = new JButton(I18n.t("header.reconnect_btn"));
 		reconnectBtn.setFont(new Font("SansSerif", Font.PLAIN, 11));
 		reconnectBtn.setFocusPainted(false);
 		reconnectBtn.addActionListener(new ActionListener() {
@@ -204,10 +205,10 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		Box navBox = Box.createHorizontalBox();
 		navBox.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		tabBtnInput = new JButton("① 入力制御 (PLC → UR)");
-		tabBtnOutputBool = new JButton("② 出力状態 (UR → PLC: ビット)");
-		tabBtnOutputCode = new JButton("③ 整数コード & ハンドシェイク");
-		tabBtnLog = new JButton("④ 通信ログ");
+		tabBtnInput = new JButton(I18n.t("tab.input"));
+		tabBtnOutputBool = new JButton(I18n.t("tab.output_bool"));
+		tabBtnOutputCode = new JButton(I18n.t("tab.output_code"));
+		tabBtnLog = new JButton(I18n.t("tab.log"));
 
 		final JButton[] buttons = {tabBtnInput, tabBtnOutputBool, tabBtnOutputCode, tabBtnLog};
 		for (int i = 0; i < buttons.length; i++) {
@@ -257,7 +258,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		JLabel descLabel = new JLabel("PLCからのブール入力 (立ち上がりエッジ 0→1) で実行するコマンドを割り当てます。");
+		JLabel descLabel = new JLabel(I18n.t("input.desc"));
 		descLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
 		descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		panel.add(descLabel);
@@ -269,7 +270,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 
 			JLabel nameLabel = new JLabel(action.getDisplayName());
 			nameLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
-			nameLabel.setPreferredSize(new Dimension(230, 26));
+			nameLabel.setPreferredSize(new Dimension(245, 26));
 			row.add(nameLabel);
 
 			final JComboBox combo = new JComboBox();
@@ -297,7 +298,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			row.add(statusLabel);
 			row.add(Box.createRigidArea(new Dimension(10, 0)));
 
-			JButton testBtn = new JButton("実行");
+			JButton testBtn = new JButton(I18n.t("input.run_btn"));
 			testBtn.setFont(new Font("SansSerif", Font.PLAIN, 11));
 			testBtn.setPreferredSize(new Dimension(65, 24));
 			testBtn.setFocusPainted(false);
@@ -325,7 +326,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		JLabel descLabel = new JLabel("ロボット状態をEthernet/IP出力ビット(汎用ブール出力レジスタ/DO)へ常時追従して出力します。");
+		JLabel descLabel = new JLabel(I18n.t("output_bool.desc"));
 		descLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
 		descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		panel.add(descLabel);
@@ -383,7 +384,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		JLabel h1 = new JLabel("【多値状態の整数コード出力 (output_int_register)】");
+		JLabel h1 = new JLabel(I18n.t("output_code.header_codes"));
 		h1.setFont(new Font("SansSerif", Font.BOLD, 12));
 		h1.setAlignmentX(Component.LEFT_ALIGNMENT);
 		panel.add(h1);
@@ -433,20 +434,20 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		}
 
 		panel.add(Box.createRigidArea(new Dimension(0, 10)));
-		JLabel h2 = new JLabel("【コマンド実行ハンドシェイク信号 (Busy / Done / Error)】");
+		JLabel h2 = new JLabel(I18n.t("output_code.header_handshake"));
 		h2.setFont(new Font("SansSerif", Font.BOLD, 12));
 		h2.setAlignmentX(Component.LEFT_ALIGNMENT);
 		panel.add(h2);
 		panel.add(Box.createRigidArea(new Dimension(0, 6)));
 
 		// Busy
-		busyIoComboBox = createHandshakeCombo(panel, "Command Busy (処理中):", contribution);
+		busyIoComboBox = createHandshakeCombo(panel, I18n.t("handshake.busy"), contribution);
 		// Done
-		doneIoComboBox = createHandshakeCombo(panel, "Command Done (正常完了):", contribution);
+		doneIoComboBox = createHandshakeCombo(panel, I18n.t("handshake.done"), contribution);
 		// Error
-		errorIoComboBox = createHandshakeCombo(panel, "Command Error (実行エラー):", contribution);
+		errorIoComboBox = createHandshakeCombo(panel, I18n.t("handshake.error"), contribution);
 		// ErrorCode
-		errorCodeIoComboBox = createHandshakeCombo(panel, "Last Error Code 出力先:", contribution);
+		errorCodeIoComboBox = createHandshakeCombo(panel, I18n.t("handshake.error_code"), contribution);
 
 		return panel;
 	}
@@ -490,12 +491,12 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 
 		Box top = Box.createHorizontalBox();
 		top.setAlignmentX(Component.LEFT_ALIGNMENT);
-		JLabel title = new JLabel("Dashboard Server 通信ログ (直近50件)");
+		JLabel title = new JLabel(I18n.t("log.title"));
 		title.setFont(new Font("SansSerif", Font.BOLD, 12));
 		top.add(title);
 		top.add(Box.createHorizontalGlue());
 
-		clearLogButton = new JButton("ログクリア");
+		clearLogButton = new JButton(I18n.t("log.clear_btn"));
 		clearLogButton.setFont(new Font("SansSerif", Font.PLAIN, 11));
 		clearLogButton.setFocusPainted(false);
 		clearLogButton.addActionListener(new ActionListener() {
@@ -534,10 +535,10 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			lastDashboardConnected = dashboardConnected;
 			if (dashboardStatusLabel != null) {
 				if (dashboardConnected) {
-					dashboardStatusLabel.setText("Dashboard (29999): 接続中");
+					dashboardStatusLabel.setText(I18n.t("header.dashboard_connected"));
 					dashboardStatusLabel.setForeground(COLOR_CONNECTED);
 				} else {
-					dashboardStatusLabel.setText("Dashboard: 切断");
+					dashboardStatusLabel.setText(I18n.t("header.dashboard_disconnected"));
 					dashboardStatusLabel.setForeground(COLOR_DISCONNECTED);
 				}
 			}
@@ -547,10 +548,10 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 			lastPrimaryPort = primaryPort;
 			if (primaryStatusLabel != null) {
 				if (primaryConnected) {
-					primaryStatusLabel.setText("Primary (" + primaryPort + "): 接続中");
+					primaryStatusLabel.setText(I18n.t("header.primary_connected", primaryPort));
 					primaryStatusLabel.setForeground(COLOR_CONNECTED);
 				} else {
-					primaryStatusLabel.setText("Primary: 切断");
+					primaryStatusLabel.setText(I18n.t("header.primary_disconnected"));
 					primaryStatusLabel.setForeground(COLOR_DISCONNECTED);
 				}
 			}
@@ -567,9 +568,12 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 		for (JComboBox combo : outputIoComboBoxes.values()) {
 			updateComboItems(combo, outputOptions);
 		}
-		updateComboItems(busyIoComboBox, outputOptions);
-		updateComboItems(doneIoComboBox, outputOptions);
-		updateComboItems(errorIoComboBox, outputOptions);
+	}
+
+	public void populateHandshakeBoolOptions(List<String> handshakeBoolOptions) {
+		updateComboItems(busyIoComboBox, handshakeBoolOptions);
+		updateComboItems(doneIoComboBox, handshakeBoolOptions);
+		updateComboItems(errorIoComboBox, handshakeBoolOptions);
 	}
 
 	public void populateOutputIntOptions(List<String> intOptions) {
@@ -761,7 +765,7 @@ public class IoDashboardInstallationNodeView implements SwingInstallationNodeVie
 	private void optimizeComboBoxScroll(final JComboBox combo) {
 		combo.setMaximumRowCount(14);
 		combo.setRenderer(lightweightRenderer);
-		combo.setPrototypeDisplayValue(IoConstants.OUTPUT_BIT_PREFIX + "64 (カスタム名称)");
+		combo.setPrototypeDisplayValue(IoConstants.OUTPUT_BIT_PREFIX + "64 " + I18n.t("combo.prototype_custom_name"));
 		combo.addPopupMenuListener(new PopupMenuListener() {
 			@Override
 			public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
